@@ -7,6 +7,10 @@
 export const MUSIC_SECTIONS = [
   {
     id: 'ARMORY01',
+    note:
+      'Seven original progressive house and techno records, written and ' +
+      'mastered in New York City. Built as tools for DJ sets — bridging ' +
+      'classic soul with ethereal, futuristic sound design.',
     slots: 6,
     items: [
       // { title: '…', href: '…', art: '/art/….jpg' }

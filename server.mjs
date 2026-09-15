@@ -27,6 +27,7 @@ import { MUSIC_SECTIONS, TOOLS, SERVICES, CRATES } from './content/site.mjs';
 import { renderGrid, renderSections, renderServices, renderCrates } from './content/render.mjs';
 import { PORTFOLIO } from './content/portfolio.mjs';
 import { renderPortfolio } from './content/portfolio-render.mjs';
+import { head, robotsTxt, sitemapXml } from './content/seo.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
@@ -298,21 +299,34 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // ---- pages
-    if (p === '/' || p === '/index.html') return serveFile(res, 'index.html', req);
+    if (p === '/' || p === '/index.html')
+      return servePage(res, 'index.html', { head: head('/') });
+
+    if (p === '/robots.txt') {
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8',
+                           'Cache-Control': 'public, max-age=3600' });
+      return res.end(robotsTxt());
+    }
+
+    if (p === '/sitemap.xml') {
+      res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8',
+                           'Cache-Control': 'public, max-age=3600' });
+      return res.end(sitemapXml());
+    }
 
     if (p === '/lab') return serveFile(res, 'lab.html', req);   // mesh v2 prototype, unlisted
 
     if (p === '/tools' || p === '/tools.html')
-      return servePage(res, 'tools.html', { tools: renderGrid(TOOLS) });
+      return servePage(res, 'tools.html', { head: head('/tools'), tools: renderGrid(TOOLS) });
 
     if (p === '/music' || p === '/music.html')
-      return servePage(res, 'music.html', { music: renderSections(MUSIC_SECTIONS) });
+      return servePage(res, 'music.html', { head: head('/music'), music: renderSections(MUSIC_SECTIONS) });
 
     if (p === '/services' || p === '/services.html')
-      return servePage(res, 'services.html', { services: renderServices(SERVICES) });
+      return servePage(res, 'services.html', { head: head('/services'), services: renderServices(SERVICES) });
 
     if (p === '/crates' || p === '/crates.html')
-      return servePage(res, 'crates.html', { crates: renderCrates(CRATES) });
+      return servePage(res, 'crates.html', { head: head('/crates'), crates: renderCrates(CRATES) });
     if (p === '/cuts' || p === '/cuts.html') { res.writeHead(301, { Location: '/crates' }); return res.end(); }
 
     // Unlisted: reachable only by its own path, never linked from the site.

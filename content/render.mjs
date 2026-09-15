@@ -38,6 +38,7 @@ export function renderSections(sections) {
     '<section class="sect">\n' +
     `    <h2>${esc(section.id)}</h2>\n` +
     '    <div class="rule"></div>\n' +
+    (section.note ? `    <p class="sect-note">${esc(section.note)}</p>\n` : '') +
     `    ${renderGrid(section)}\n` +
     '  </section>'
   ).join('\n\n  ');

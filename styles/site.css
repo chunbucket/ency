@@ -145,6 +145,22 @@ html.gate.room body { background: transparent !important; }
   color: var(--dim);
 }
 
+/* The one line on the gate that says what this is.
+   It is here for a person who has never heard the name, and for a crawler:
+   the gate is otherwise a canvas and a password box, which to a search engine
+   is a blank document — no text means nothing to rank. Kept at the furniture's
+   weight so it reads as a caption rather than a headline. */
+.foot .who {
+  order: -1;
+  margin: 0;
+  font: 400 9px/1.6 var(--mono);
+  letter-spacing: 0.2em;
+  color: var(--dim);
+  opacity: 0.66;
+  text-align: center;
+  max-width: 82vw;
+}
+
 form.field {
   display: flex;
   align-items: center;
@@ -822,4 +838,15 @@ html.pf #bg { opacity: 0.34; filter: blur(9px) brightness(0.5); }
 .cuts-note { color: var(--dim); font-size: 12px; line-height: 1.8; margin-top: 24px; }
 @media (max-width: 560px) {
   .cuts-hero { flex-direction: column; align-items: flex-start; }
+}
+
+/* A line of prose under a section heading. Rooms used to be a heading and a
+   row of placeholders, which says nothing to a reader arriving cold and
+   nothing at all to a search engine. */
+.sect-note {
+  margin: 0 0 22px;
+  max-width: 46ch;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--dim);
 }
