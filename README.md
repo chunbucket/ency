@@ -88,7 +88,7 @@ live on the real page, plus **publish** — which writes the current settings as
 what the public sees. `revert` returns to the last published state, so you can
 explore without committing.
 
-One dial is not from the artifact: **size** (`scale`, 0.4–2×). It multiplies the
+Three dials are not from the artifact. **thin** (`thin`, 0–6%) erodes the mark by that fraction of its size on every edge, holes included, so the strokes lose weight uniformly on any viewport. **rotate** (`rotate`, ±45°) turns the artwork about its centre, counter-clockwise positive. And **size** (`scale`, 0.4–2×). It multiplies the
 ribbon's focal length and the mark's fit by the same factor so they stay in
 proportion through the morph. Past roughly 1.4× the mark starts to overlap the
 gate field on a laptop viewport.
