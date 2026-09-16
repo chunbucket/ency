@@ -150,16 +150,6 @@ html.gate.room body { background: transparent !important; }
    the gate is otherwise a canvas and a password box, which to a search engine
    is a blank document — no text means nothing to rank. Kept at the furniture's
    weight so it reads as a caption rather than a headline. */
-.foot .who {
-  order: -1;
-  margin: 0;
-  font: 400 9px/1.6 var(--mono);
-  letter-spacing: 0.2em;
-  color: var(--dim);
-  opacity: 0.66;
-  text-align: center;
-  max-width: 82vw;
-}
 
 form.field {
   display: flex;
