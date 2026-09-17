@@ -37,13 +37,15 @@ const PRESET = path.join(DATA_DIR, 'preset.json');
 const HISTORY = path.join(DATA_DIR, 'preset-history.jsonl');
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-// the fan gate, not the studio one — defaults on so the flow works out of the
-// box; set the env var to rotate it without a deploy
-const GATE_PASSWORD = process.env.GATE_PASSWORD || 'sarang';
+// the fan gate, not the studio one — no default: unset means closed, so a
+// missing env var can never put the gate back on a public word. Set the env
+// var to rotate it without a deploy
+const GATE_PASSWORD = process.env.GATE_PASSWORD || '';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SESSION_TTL = 7 * 24 * 3600 * 1000;
 
 if (!ADMIN_PASSWORD) console.warn('⚠ ADMIN_PASSWORD unset — /studio is closed');
+if (!GATE_PASSWORD) console.warn('⚠ GATE_PASSWORD unset — the fan gate is closed');
 if (!process.env.SESSION_SECRET) console.warn('⚠ SESSION_SECRET unset — sessions drop on restart');
 
 // ------------------------------------------------------------------ storage
@@ -144,8 +146,11 @@ setInterval(() => {
   for (const [k, v] of buckets) if (now > v.reset) buckets.delete(k);
 }, 60_000).unref();
 
+// The proxy appends the hop it saw on the right; the leftmost value is
+// whatever the client claims. Keying limits on the claim would let a spoofed
+// header reset them, so trust the hop the proxy actually added.
 const clientIp = req =>
-  (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?';
+  (req.headers['x-forwarded-for'] || '').split(',').pop().trim() || req.socket.remoteAddress || '?';
 
 // ------------------------------------------------------------------ helpers
 
@@ -290,14 +295,36 @@ function lobbyBroadcast() {
 // comment-only heartbeat so proxies don't reap quiet connections
 setInterval(() => { for (const c of lobbyClients) c.write(': hb\n\n'); }, 25_000).unref();
 
+// ------------------------------------------------------------------ security headers
+//
+// Set on every response before routing, so no path can forget them. The CSP
+// is same-origin; /studio and /lab still carry an inline <script>, so those
+// two get a relaxed script-src until the code moves into files.
+const CSP_BASE = "default-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+
+function securityHeaders(res, p) {
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  const scriptSrc = (p === '/studio' || p === '/studio.html' || p === '/lab')
+    ? "script-src 'self' 'unsafe-inline'"
+    : "script-src 'self'";
+  res.setHeader('Content-Security-Policy', `${CSP_BASE}; style-src 'self' 'unsafe-inline'; ${scriptSrc}`);
+}
+
 // ------------------------------------------------------------------ routes
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const p = url.pathname;
   const ip = clientIp(req);
+  securityHeaders(res, p);
 
   try {
+    // Railway health check: minimal, no state
+    if (p === '/healthz') return json(res, 200, { ok: true });
+
     // ---- pages
     if (p === '/' || p === '/index.html')
       return servePage(res, 'index.html', { head: head('/') });
@@ -355,9 +382,11 @@ const server = http.createServer(async (req, res) => {
       email = email.trim().toLowerCase();
       if (email.length > 254 || !EMAIL_RE.test(email)) return json(res, 400, { error: "that doesn't look like an email" });
       if (seen.has(email)) return json(res, 200, { ok: true, already: true });
-      seen.add(email);
+      // write first, then remember: adding to the set before the append would
+      // make a failed write look saved for the life of this process
       // never logged, only written
       await appendFile(EMAILS, JSON.stringify({ email, ts: new Date().toISOString() }) + '\n');
+      seen.add(email);
       return json(res, 200, { ok: true });
     }
 
@@ -379,9 +408,10 @@ const server = http.createServer(async (req, res) => {
       const phone = normalizePhone(body.phone);
       if (!phone) return json(res, 400, { error: "that doesn't look like a phone number" });
       if (phoneSeen.has(phone)) return json(res, 200, { ok: true, already: true, count: phoneSeen.size });
-      phoneSeen.add(phone);
+      // write first, then remember, same reason as /api/subscribe
       // never logged, only written
       await appendFile(PHONES, JSON.stringify({ phone, ts: new Date().toISOString() }) + '\n');
+      phoneSeen.add(phone);
       lobbyBroadcast();
       return json(res, 200, { ok: true, count: phoneSeen.size });
     }
