@@ -2,7 +2,7 @@
 
 Artist project site. The page is the mesh: a parametric Möbius ribbon rasterized
 live into a character grid, which resolves into the arc mark. Below it, a gate:
-say the word (`sarang` unless rotated), leave your number, and you're beamed
+say the word, leave your number, and you're beamed
 through a wormhole into the lobby — a small pixel minimap, centered, with the
 mesh still playing behind it, blurred and darker. Every number that has ever
 joined wanders in there as a tiny body, live. A lock opens the studio.
@@ -99,7 +99,7 @@ gate field on a laptop viewport.
 |---|---|---|
 | `ADMIN_PASSWORD` | yes | studio is closed if unset |
 | `SESSION_SECRET` | yes | random per boot if unset, which drops sessions on restart |
-| `GATE_PASSWORD` | no | the fan gate; defaults to `sarang`, set to rotate without a deploy |
+| `GATE_PASSWORD` | yes | the fan gate; unset fails closed, set to rotate without a deploy |
 | `DATA_DIR` | prod | `/data` on Railway; defaults to `./data` locally |
 | `PORT` | no | defaults to 4720 |
 
