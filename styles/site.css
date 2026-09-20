@@ -840,3 +840,112 @@ html.pf #bg { opacity: 0.34; filter: blur(9px) brightness(0.5); }
   line-height: 1.75;
   color: var(--dim);
 }
+
+/* ------------------------------------------------- before / after
+
+   The deck is deliberately quiet: two labelled sides, a bar, and the two
+   loudness figures. The figures are the point — a client who knows what LUFS
+   means learns more from "-28.4 / -9.0, both played at -18" than from any
+   adjective on this page. */
+
+.ab { outline: none; }
+.ab:focus-visible { outline: 1px solid rgba(255,255,255,0.25); outline-offset: 12px; }
+
+.ab-deck {
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 26px;
+}
+
+.ab-play {
+  appearance: none; cursor: pointer;
+  flex: 0 0 auto;
+  width: 38px; height: 38px;
+  display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.ab-play:hover { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.09); }
+
+/* a triangle that becomes a pause bar, drawn in borders so there is no glyph
+   to go missing and no second asset to ship */
+.ab-glyph {
+  width: 0; height: 0;
+  border-style: solid;
+  border-width: 5.5px 0 5.5px 9px;
+  border-color: transparent transparent transparent var(--ink);
+  margin-left: 2px;
+}
+.ab.on .ab-glyph {
+  width: 9px; height: 11px;
+  border-width: 0 3px;
+  border-color: transparent var(--ink);
+  margin-left: 0;
+}
+
+.ab-bar {
+  flex: 1 1 auto;
+  height: 22px;                 /* a generous target; the line is drawn inside */
+  display: flex; align-items: center;
+  cursor: pointer;
+  position: relative;
+}
+.ab-bar::before {
+  content: ''; display: block;
+  width: 100%; height: 2px;
+  background: rgba(255, 255, 255, 0.11);
+}
+.ab-fill {
+  position: absolute; left: 0; top: 50%;
+  width: 100%; height: 2px; margin-top: -1px;
+  background: var(--ink);
+  transform: scaleX(0); transform-origin: left center;
+}
+
+.ab-time {
+  flex: 0 0 auto;
+  font: 400 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.ab-switch { display: flex; gap: 8px; margin-top: 16px; }
+.ab-side {
+  appearance: none; cursor: pointer;
+  flex: 1 1 0; min-width: 0;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 14px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.ab-side:hover { border-color: rgba(255,255,255,0.22); }
+.ab-side.on { border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.075); }
+.ab-side .lb {
+  font: 400 12px/1 var(--mono); letter-spacing: 0.1em; color: var(--dim);
+}
+.ab-side.on .lb { color: var(--ink); }
+.ab-side .lu {
+  font: 400 10px/1 var(--mono); letter-spacing: 0.06em; color: var(--dim);
+  opacity: 0.66; font-variant-numeric: tabular-nums;
+}
+
+.ab-status:empty { display: none; }
+.ab-status {
+  margin: 12px 0 0;
+  font: 400 10px/1 var(--mono); letter-spacing: 0.18em; color: var(--dim);
+}
+
+.ab-meta {
+  margin: 16px 0 0;
+  font: 400 10px/1.6 var(--mono); letter-spacing: 0.14em; color: var(--dim);
+}
+.ab-note {
+  margin: 10px 0 0; max-width: 46ch;
+  font-size: 12px; line-height: 1.75; color: var(--dim); opacity: 0.8;
+}
+
+@media (max-width: 520px) { .ab-switch { flex-direction: column; } }

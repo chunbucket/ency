@@ -35,6 +35,8 @@ async function swap(path, push) {
     if (push) history.pushState({ ency: 1 }, '', path);
     setNav(labelFor(path));
     window.scrollTo(0, 0);
+    // a room's own JS wires itself off this; innerHTML replaced every node
+    document.dispatchEvent(new CustomEvent('room:enter'));
   } catch {
     location.href = path;
   } finally {
@@ -50,6 +52,7 @@ export function initRouter(shell = null) {
   };
 
   const leave = push => {
+    document.dispatchEvent(new CustomEvent('room:leave'));
     const m = main();
     if (m) { m.hidden = true; m.innerHTML = ''; }
     if (shell) shell.restore();

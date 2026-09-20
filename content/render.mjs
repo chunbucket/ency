@@ -82,3 +82,41 @@ export function renderCrates(c) {
     </div>
   </section>`;
 }
+
+/* The before/after deck. Server-rendered so the markup is complete before
+   js/ab.js touches it, and so the page still says what it is with no script. */
+export function renderAB(ab) {
+  const sideBtn = (s, i) =>
+    `<button class="ab-side${i === 0 ? ' on' : ''}" type="button" role="radio"
+              aria-checked="${i === 0}">
+          <span class="lb">${esc(s.label)}</span>
+          <span class="lu">${esc(s.lufs)}</span>
+        </button>`;
+
+  return `<section class="sect">
+    <h2>BEFORE / AFTER</h2>
+    <div class="rule"></div>
+    <div class="ab" tabindex="0" data-a="${esc(ab.a.src)}" data-b="${esc(ab.b.src)}"
+         aria-label="Before and after mastering, ${esc(ab.track)}">
+      <p class="svc-lede">${esc(ab.lede)}</p>
+      <p class="svc-body">${esc(ab.body)}</p>
+
+      <div class="ab-deck">
+        <button class="ab-play" type="button" aria-label="Play">
+          <span class="ab-glyph" aria-hidden="true"></span>
+        </button>
+        <span class="ab-bar"><span class="ab-fill"></span></span>
+        <span class="ab-time">0:00 / 0:00</span>
+      </div>
+
+      <div class="ab-switch" role="radiogroup" aria-label="Which render to hear">
+        ${sideBtn(ab.a, 0)}
+        ${sideBtn(ab.b, 1)}
+      </div>
+
+      <p class="ab-status" role="status" aria-live="polite"></p>
+      <p class="ab-meta">${esc(ab.track)} \u00b7 ${esc(ab.length)} from ${esc(ab.from)}</p>
+      <p class="ab-note">${esc(ab.matched)}</p>
+    </div>
+  </section>`;
+}

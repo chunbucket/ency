@@ -23,8 +23,8 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 
 const PORT = process.env.PORT || 4720;
-import { MUSIC_SECTIONS, TOOLS, SERVICES, CRATES } from './content/site.mjs';
-import { renderGrid, renderSections, renderServices, renderCrates } from './content/render.mjs';
+import { MUSIC_SECTIONS, TOOLS, SERVICES, CRATES, AB } from './content/site.mjs';
+import { renderGrid, renderSections, renderServices, renderCrates, renderAB } from './content/render.mjs';
 import { PORTFOLIO } from './content/portfolio.mjs';
 import { renderPortfolio } from './content/portfolio-render.mjs';
 import { head, robotsTxt, sitemapXml } from './content/seo.mjs';
@@ -350,7 +350,8 @@ const server = http.createServer(async (req, res) => {
       return servePage(res, 'music.html', { head: head('/music'), music: renderSections(MUSIC_SECTIONS) });
 
     if (p === '/services' || p === '/services.html')
-      return servePage(res, 'services.html', { head: head('/services'), services: renderServices(SERVICES) });
+      return servePage(res, 'services.html',
+        { head: head('/services'), services: renderServices(SERVICES), ab: renderAB(AB) });
 
     if (p === '/crates' || p === '/crates.html')
       return servePage(res, 'crates.html', { head: head('/crates'), crates: renderCrates(CRATES) });
