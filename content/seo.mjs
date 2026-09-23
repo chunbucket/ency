@@ -30,39 +30,43 @@ export const SITE = {
   ],
 };
 
-/* Per-page title and description. Titles lead with the distinguishing words,
- * not with the brand: "ency" alone competes with a dictionary entry and a
- * CAD/CAM company that runs a conference called ENCY World, so the qualifier
- * is what makes the result findable at all. Descriptions are written to be
- * read by a person in a result list, not stuffed. */
+/* Per-page title and description.
+ *
+ * The title is the browser tab before it is anything else, and the tab says
+ * the name. A tab reading "Ency — progressive house and techno producer and
+ * DJ, New York City" is a search result that wandered into the furniture.
+ *
+ * The keywords have not gone anywhere: the description is what a person
+ * actually reads under the link, and the MusicGroup graph is what an engine
+ * reads to know what this is. Both still carry every term. */
 const PAGES = {
   '/': {
-    title: 'Ency — progressive house and techno producer and DJ, New York City',
+    title: 'ency',
     description:
       'Ency is a progressive house and techno producer and DJ based in New York ' +
       'City, building a record and a world around it. Music, mixing and ' +
       'mastering, and the tools behind them.',
   },
   '/music': {
-    title: 'Music — Ency | progressive house and techno from New York City',
+    title: 'ency — music',
     description:
       'ARMORY01 — seven original progressive house and techno records by Ency, ' +
       'written and mastered in New York City.',
   },
   '/services': {
-    title: 'Mixing and mastering — Ency | New York City',
+    title: 'ency — services',
     description:
       'Mixing and mastering by Ency, a progressive house and techno producer in ' +
       'New York City. Loud enough for a club, intact on headphones.',
   },
   '/tools': {
-    title: 'Tools — Ency | software for producers and DJs',
+    title: 'ency — tools',
     description:
       'Software built by Ency for the work: Crates, a menu bar record player for ' +
       'the Mac, and a reference-matching mastering engine in progress.',
   },
   '/crates': {
-    title: 'Crates — a menu bar record player for the Mac | Ency',
+    title: 'ency — crates',
     description:
       'Drop a link, get a record. Crates files the audio as FLAC with art, title ' +
       'and source embedded, analysed for BPM and key. Free and open source.',
