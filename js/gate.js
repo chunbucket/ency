@@ -45,6 +45,7 @@ export function createGate() {
     }
     // starts as just you; the stream corrects the count on connect
     lobby = createLobby({ count: 1, reduced });
+    if (demoted) lobby.root.style.visibility = 'hidden';   // a room is already open
     return lobby;
   }
 
@@ -73,6 +74,10 @@ export function createGate() {
   /* ---- the shell ----------------------------------------------------
    * Opening a room demotes this mesh rather than building another, so the
    * animation carries straight through instead of restarting.
+   *
+   * Everything the gate put on the page goes with it: the foot, and the whole
+   * of the lobby — coordinates, window and countdown. A room is a room, not a
+   * room with the front door still standing in it.
    * setState({ scale }) rebuilds the targets without calling play(), so the
    * clock is untouched. */
 
@@ -88,7 +93,7 @@ export function createGate() {
     demote() {
       demoted = true;
       foot.style.display = 'none';
-      if (lobby?.panel) lobby.panel.style.display = 'none';
+      if (lobby) lobby.root.style.visibility = 'hidden';
       cv.style.transition = 'filter 700ms ease, opacity 700ms ease';
       cv.style.filter = 'blur(7px) brightness(0.4)';
       cv.style.opacity = '0.62';
@@ -109,7 +114,7 @@ export function createGate() {
       // the lobby has its own idea of how the mesh should sit behind it
       cv.style.filter = lobby ? 'blur(4px) brightness(0.55)' : 'none';
       cv.style.opacity = '1';
-      if (lobby?.panel) lobby.panel.style.display = '';
+      if (lobby) lobby.root.style.visibility = '';
       else foot.style.display = '';
     },
   };

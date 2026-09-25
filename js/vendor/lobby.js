@@ -1254,6 +1254,11 @@
     raf = requestAnimationFrame(frame);
 
     return {
+      // `root` is everything the lobby put on the page — the coordinates, the
+      // window, and the countdown under it. `panel` is only the window, which
+      // is the right handle for the wormhole to land on and the wrong one for
+      // anybody trying to get the lobby out of the way.
+      root: wrap,
       panel: panel,
       setCount: function (n) { syncCount(n, false); },
       destroy: function () {
