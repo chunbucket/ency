@@ -949,3 +949,71 @@ html.pf #bg { opacity: 0.34; filter: blur(9px) brightness(0.5); }
 }
 
 @media (max-width: 520px) { .ab-switch { flex-direction: column; } }
+
+/* ------------------------------------------------------------- the rail
+
+   A horizontal track of cards. Swiper takes over once it loads; until then
+   — and if it never loads — this is a plain scroll container, which is why
+   the fallback rules are scoped to :not(.swiper-initialized). */
+
+.rail { position: relative; }
+
+.rail-track { overflow: hidden; }
+.rail-track:not(.swiper-initialized) {
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.rail-track:not(.swiper-initialized)::-webkit-scrollbar { display: none; }
+.rail-track:not(.swiper-initialized) .swiper-wrapper {
+  display: flex;
+  gap: 14px;
+}
+.rail-track:not(.swiper-initialized) .rail-cell { scroll-snap-align: start; }
+
+/* .rail qualifies these on purpose. Swiper's stylesheet is injected at
+   runtime, so it lands after this one, and its .swiper-slide { width: 100% }
+   wins any tie — which put one card across the whole track. */
+.rail .rail-cell {
+  flex: 0 0 auto;
+  width: 268px;
+  height: auto;
+  /* the lean needs a perspective on the card's own parent; in the grid that
+     is .grid, here it is the slide */
+  perspective: 900px;
+}
+.rail .rail-cell .card { width: 100%; }
+
+/* the track runs to the edge of the reading column; the cards should not look
+   severed, so the last few pixels fade rather than stopping dead */
+.rail::after {
+  content: '';
+  position: absolute; top: 0; right: -1px; bottom: 0;
+  width: 46px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--paper-room));
+}
+
+.rail-nav {
+  display: flex; gap: 8px;
+  margin-top: 16px;
+}
+.rail-nav button {
+  appearance: none; cursor: pointer;
+  width: 34px; height: 30px;
+  display: grid; place-items: center;
+  font: 400 13px/1 var(--mono);
+  color: var(--dim);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  transition: color 140ms ease, border-color 140ms ease;
+}
+.rail-nav button:hover { color: var(--ink); border-color: rgba(255,255,255,0.26); }
+.rail-nav button.swiper-button-disabled { opacity: 0.35; cursor: default; }
+.rail-nav button.swiper-button-disabled:hover { color: var(--dim); border-color: rgba(255,255,255,0.09); }
+
+@media (max-width: 560px) {
+  .rail .rail-cell { width: 74vw; }
+  .rail::after { width: 28px; }
+}

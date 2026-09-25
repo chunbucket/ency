@@ -33,13 +33,35 @@ export function renderGrid({ slots = 0, items = [], wide = false }) {
   return `<div class="grid${wide ? ' two' : ''}">\n      ${cells.join('\n      ')}\n    </div>`;
 }
 
+/* A rail: the same cards on one horizontal track. Slides are server-rendered
+   like everything else, so the row is complete before Swiper touches it and
+   still scrolls natively if the script never arrives. */
+export function renderRail({ slots = 0, items = [] }) {
+  const cells = [];
+  for (let i = 0; i < slots; i++) {
+    cells.push('<div class="swiper-slide rail-cell">' +
+      (items[i] ? releaseCard(items[i]) : placeholderCard()) + '</div>');
+  }
+  return `<div class="rail">
+      <div class="swiper rail-track">
+        <div class="swiper-wrapper">
+          ${cells.join('\n          ')}
+        </div>
+      </div>
+      <div class="rail-nav">
+        <button class="prev" type="button" aria-label="Previous">&#8592;</button>
+        <button class="next" type="button" aria-label="Next">&#8594;</button>
+      </div>
+    </div>`;
+}
+
 export function renderSections(sections) {
   return sections.map(section =>
     '<section class="sect">\n' +
     `    <h2>${esc(section.id)}</h2>\n` +
     '    <div class="rule"></div>\n' +
     (section.note ? `    <p class="sect-note">${esc(section.note)}</p>\n` : '') +
-    `    ${renderGrid(section)}\n` +
+    `    ${section.rail ? renderRail(section) : renderGrid(section)}\n` +
     '  </section>'
   ).join('\n\n  ');
 }

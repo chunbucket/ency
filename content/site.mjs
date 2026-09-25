@@ -7,6 +7,7 @@
 export const MUSIC_SECTIONS = [
   {
     id: 'ARMORY01',
+    rail: true,          // one horizontal track, not a grid that reflows
     slots: 6,
     items: [
       // { title: '…', href: '…', art: '/art/….jpg' }

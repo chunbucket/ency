@@ -5,9 +5,11 @@ import { initRouter } from '../router.js';
 import { initTilt } from '../tilt.js';
 import { createGate } from '../gate.js';
 import { mountAB } from '../ab.js';
+import { mountRail } from '../rail.js';
 
 const shell = createGate();   // synchronous; its own boot continues in the background
 mountChrome(null);
 initRouter(shell);
 initTilt();
 mountAB();
+mountRail();
