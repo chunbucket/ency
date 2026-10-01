@@ -28,10 +28,10 @@ window.addEventListener('unhandledrejection', e => fatal('async: ' + ((e.reason 
 const $ = id => document.getElementById(id);
 
 /* ---------- settings ---------- */
-const S = { mode:'shapes', view:'vector', thr:128, auto:true, invert:false, adaptive:true, fill:'#111111',
-  ncol:5, keepBg:true, detail:7, smooth:2, corner:5, speck:20, denoise:3, flatten:false, curves:true, anchors:false, res:2000,
+const S = { mode:'shapes', view:'vector', thr:128, auto:true, invert:false, adaptive:false, fill:'#111111',
+  ncol:5, keepBg:true, detail:8, smooth:1, corner:8, speck:4, denoise:1, flatten:false, curves:true, anchors:false, res:2000,
   // tracing extras
-  style:'fill', lineW:0, snap:0, fine:false, autoColors:false, layering:'stack',
+  style:'fill', lineW:0, snap:0, fine:false, autoColors:true, layering:'stack',
   // export, refine, library, app
   format:'svg', size:'fit', paper:'auto', pngScale:2, brush:0.035, history:true, historyMax:30, autoCam:true };
 // settings that change only the file or the app, never the trace
@@ -40,10 +40,16 @@ const RES = [1200, 2000, 2800];
 // settings survive a reload and every switch between controls: one object,
 // written to this browser's storage on each change
 const SAVED = Object.keys(S);
-try { const o = JSON.parse(localStorage.getItem('vc-settings') || '{}'); for (const k of SAVED) if (k in o && typeof o[k] === typeof S[k]) S[k] = o[k]; } catch (e) {}
+try {
+  let o = JSON.parse(localStorage.getItem('vc-settings2') || 'null');
+  // first load of the simpler layout: keep the look and export choices, let
+  // every tracing setting start from its default again
+  if (!o) { const old = JSON.parse(localStorage.getItem('vc-settings') || '{}'); o = {}; for (const k of ['mode', 'style', 'fill', 'format', 'size', 'paper', 'pngScale', 'history', 'historyMax', 'autoCam']) if (k in old) o[k] = old[k]; }
+  for (const k of SAVED) if (k in o && typeof o[k] === typeof S[k]) S[k] = o[k];
+} catch (e) {}
 if (!RES.includes(S.res)) S.res = 2000;
 let saveT = 0;
-function persist() { clearTimeout(saveT); saveT = setTimeout(() => { try { const o = {}; for (const k of SAVED) o[k] = S[k]; localStorage.setItem('vc-settings', JSON.stringify(o)); } catch (e) {} }, 250); }
+function persist() { clearTimeout(saveT); saveT = setTimeout(() => { try { const o = {}; for (const k of SAVED) o[k] = S[k]; localStorage.setItem('vc-settings2', JSON.stringify(o)); } catch (e) {} }, 250); }
 // per image, not saved as preferences: refine strokes, palette edits
 let strokes = [], redoStack = [], pal = {}, palK = 0, lastPalette = null, lastK = 0, lastStrokeW = 0;
 const traceSettings = forLive => {
@@ -63,7 +69,7 @@ const photo = $('photo'), pctx = photo.getContext('2d'), vid = $('vid'), stage =
 const fc = document.createElement('canvas'), fctx = fc.getContext('2d', { willReadFrequently:true });
 
 /* ---------- the tracer, off the main thread ---------- */
-const worker = new Worker('/js/pages/vectorcam-worker.js?v=7');
+const worker = new Worker('/js/pages/vectorcam-worker.js?v=8');
 let busy = false, queued = null, jobSeq = 0;
 worker.onerror = e => { busy = false; fatal('tracer: ' + (e.message || 'could not load')); };
 worker.onmessage = e => {
@@ -127,6 +133,7 @@ function show(r) {
   if (r.palette) {
     if (r.k !== lastK && r.kind === 'trace' && palK && palK !== r.k) { pal = {}; palK = 0; selPal = -1; }   // a new palette: old edits don't apply
     lastK = r.k; lastPalette = r.palette;
+    if (S.autoColors && S.ncol !== r.k) { S.ncol = r.k; syncInline(); if (camOpen && active === 'ncol') updateDial(); }
     if (camOpen && active === 'palette') renderPalette();
   }
   if (S.auto && S.mode === 'shapes' && S.thr !== r.autoThr) { S.thr = r.autoThr; $('thr').value = S.thr; $('thrVal').textContent = S.thr; if (camOpen && active === 'thr') updateDial(); }
@@ -152,7 +159,7 @@ function show(r) {
     (live ? '' : '<span><b>' + kb.toFixed(1) + '</b> KB</span>') + '<span>' + Math.round(r.ms) + ' ms</span>' + (live ? '<span><b>' + fps + '</b> fps</span>' : '') +
     (r.k ? '<span><b>' + r.k + '</b> colors</span>' : '') + (r.strokeW ? '<span>lines <b>' + fm(r.strokeW) + '</b> px</span>' : '') +
     (r.quad ? '<span>page flattened</span>' : '');
-  if (camOpen && !peek) $('camRead').textContent = (live ? 'live · ' : W + '×' + H + ' · ') + pl + ' · ' + r.nodes.toLocaleString() + ' nodes' + (live ? ' · ' + fps + ' fps' : ' · ' + kb.toFixed(1) + ' KB') + (r.k ? ' · ' + r.k + ' colors' : '') + (r.quad ? ' · flat' : '');
+  if (camOpen && !peek) $('camRead').textContent = live ? '' : W + ' × ' + H + ' · ' + kb.toFixed(1) + ' KB';
   applyView();
   if (r.kind === 'trace' && !stillIsSample) queueHistory();
 }
@@ -189,28 +196,22 @@ const PARAMS = {
   speck:   { label:'specks',    min:0, max:300, step:5, px:2,  fmt: v => v ? '< ' + v + ' px²' : 'off' },
   denoise: { label:'denoise',   min:0, max:10,  step:1, px:40, fmt: v => v ? v + ' / 10' : 'off' },
 };
-// on/off chips; some stand for a richer setting (center lines = style 'line')
-const TOGGLES = {
-  lines:      { label:'center lines', get:() => S.style === 'line', set:v => setParam('style', v ? 'line' : 'fill') },
-  snapOn:     { label:'snap shapes', get:() => S.snap > 0, set:v => setParam('snap', v ? 1 : 0) },
-  autoColors: { label:'auto colors' },
-  adaptive:   { label:'even light' },
-  invert:     { label:'invert' },
-  keepBg:     { label:'background' },
-  flatten:    { label:'flatten page' },
-  curves:     { label:'curves' },
-  anchors:    { label:'anchors' },
-};
-const tget = k => TOGGLES[k].get ? TOGGLES[k].get() : S[k];
-const tset = (k, v) => TOGGLES[k].set ? TOGGLES[k].set(v) : setParam(k, v);
-const CHIPS = {
-  shapes: ['thr', 'fill', 'detail', 'corner', 'smooth', 'speck', 'denoise', 'lines', 'snapOn', 'adaptive', 'invert', 'flatten', 'curves', 'anchors'],
-  color:  ['ncol', 'palette', 'detail', 'corner', 'smooth', 'speck', 'denoise', 'autoColors', 'snapOn', 'keepBg', 'flatten', 'curves', 'anchors'],
-};
+// what the main screens show: the mode's main dial, detail, and its colour
+// control; after a capture, the tools. Everything else lives in settings.
+const mainKey = () => S.mode === 'color' ? 'ncol' : 'thr';
+const adjustable = () => [mainKey(), 'detail'];
+const uiMode = () => S.mode === 'color' ? 'color' : S.style === 'line' ? 'lines' : 'shapes';
+// detail drives smoothing, speck removal, denoise and corner sharpness
+// together, so one dial runs from soft and simple to a hard, raw threshold
+// where every speck and spike survives
+const DETAIL_SMOOTH  = [5, 4, 4, 3, 3, 2, 1, 1, 0, 0];
+const DETAIL_SPECK   = [120, 80, 60, 40, 30, 20, 10, 4, 1, 0];
+const DETAIL_DENOISE = [6, 5, 5, 4, 4, 3, 2, 1, 0, 0];
+const DETAIL_CORNER  = [2, 3, 3, 4, 4, 5, 6, 8, 9, 10];
 let active = 'thr';
 try { const a = localStorage.getItem('vc-active'); if (a) active = a; } catch (e) {}
 
-function setParam(k, v) {
+function setParam(k, v, raw) {
   if (PARAMS[k]) {
     const p = PARAMS[k];
     v = Math.min(p.max, Math.max(p.min, Math.round(v / p.step) * p.step));
@@ -218,48 +219,51 @@ function setParam(k, v) {
   } else if (S[k] === v) return false;
   S[k] = v;
   if (k === 'thr') S.auto = false;
+  if (k === 'ncol') S.autoColors = false;
+  if (k === 'detail' && !raw) { S.smooth = DETAIL_SMOOTH[v - 1]; S.speck = DETAIL_SPECK[v - 1]; S.denoise = DETAIL_DENOISE[v - 1]; S.corner = DETAIL_CORNER[v - 1]; }
   if (k === 'ncol' || k === 'autoColors') { pal = {}; palK = 0; selPal = -1; }
   if (NO_TRACE.has(k)) { syncInline(); if (!live && lastBody) { lastSvg = buildSvg(); if (!$('code').hidden) $('code').value = lastSvg; } return true; }
-  if (k === 'flatten') { manualQuad = null; strokes = []; redoStack = []; if (camOpen) buildChips(); }
+  if (k === 'flatten') { manualQuad = null; strokes = []; redoStack = []; }
   syncInline(); if (camOpen) { updateDial(); syncChips(); }
   requestTrace();
   return true;
 }
+// three modes on screen; lines is shapes traced as centre lines
 function setMode(m) {
-  if (S.mode === m) return;
-  S.mode = m;
-  if (!CHIPS[m].includes(active)) active = m === 'shapes' ? 'thr' : 'ncol';
+  if (uiMode() === m) return;
+  if (m === 'color') S.mode = 'color';
+  else { S.mode = 'shapes'; S.style = m === 'lines' ? 'line' : 'fill'; }
+  if (active === 'thr' || active === 'ncol') active = mainKey();
+  if (active === 'fill' && S.mode === 'color') active = 'palette';
+  if (active === 'palette' && S.mode !== 'color') active = 'fill';
   syncInline(); if (camOpen) { buildChips(); select(active); }
   requestTrace();
 }
-function setView(v) { S.view = v; syncInline(); $('camViewLbl').textContent = { vector:'vec', overlay:'mix', photo:'img' }[v]; applyView(); }
+function setView(v) { S.view = v; syncInline(); applyView(); }
 function setAuto(on) { S.auto = on; syncInline(); if (camOpen) updateDial(); requestTrace(); }
+function setAutoColors(on) { S.autoColors = on; pal = {}; palK = 0; selPal = -1; syncInline(); if (camOpen) updateDial(); requestTrace(); }
 function setRes(v) { S.res = v; syncInline(); if (!live && still) { sendStill(); requestTrace(); } }
 
 /* the desktop dial card mirrors S; it never holds state of its own */
-const SLIDERS = ['thr', 'ncol', 'detail', 'smooth', 'corner', 'speck', 'denoise'];
-const CHECKS = ['invert', 'adaptive', 'keepBg', 'flatten', 'curves', 'anchors'];
+const SLIDERS = ['thr', 'ncol', 'detail'];
 function syncInline() {
   persist();
   if ($('dlBtn')) updateSaveLabels();
   for (const k of SLIDERS) { $(k).value = S[k]; const v = $(k + 'Val'); if (v) v.textContent = PARAMS[k].fmt(S[k]); }
-  for (const k of CHECKS) $(k).checked = S[k];
   $('autoBtn').setAttribute('aria-pressed', S.auto);
-  for (const [id, key] of [['modeSeg', 'mode'], ['viewSeg', 'view'], ['resSeg', 'res']])
-    for (const b of $(id).children) b.setAttribute('aria-pressed', String(b.dataset.v) === String(S[key]));
-  for (const b of $('camMode').children) b.setAttribute('aria-pressed', b.dataset.v === S.mode);
-  $('shapesGroup').hidden = S.mode !== 'shapes'; $('colorGroup').hidden = S.mode !== 'color';
+  $('autoColBtn').setAttribute('aria-pressed', S.autoColors);
+  const m = uiMode();
+  for (const b of $('modeSeg').children) b.setAttribute('aria-pressed', b.dataset.v === m);
+  for (const b of $('camMode').children) b.setAttribute('aria-pressed', b.dataset.v === m);
+  $('shapesGroup').hidden = S.mode !== 'shapes'; $('colorGroup').hidden = S.mode !== 'color'; $('fillGroup').hidden = S.mode !== 'shapes';
   for (const sw of $('swatches').querySelectorAll('.sw')) sw.setAttribute('aria-pressed', sw.dataset.c.toLowerCase() === S.fill.toLowerCase());
   for (const sw of $('fillRow').querySelectorAll('.csw')) sw.setAttribute('aria-pressed', sw.dataset.c.toLowerCase() === S.fill.toLowerCase());
 }
 
-function seg(id, fn) { $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) fn(b.dataset.v); }); }
-seg('modeSeg', setMode);
-seg('viewSeg', setView);
-seg('resSeg', v => setRes(+v));
+$('modeSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMode(b.dataset.v); });
 for (const k of SLIDERS) $(k).addEventListener('input', e => setParam(k, +e.target.value));
 $('autoBtn').addEventListener('click', () => setAuto(!S.auto));
-for (const k of CHECKS) $(k).addEventListener('change', e => setParam(k, e.target.checked));
+$('autoColBtn').addEventListener('click', () => setAutoColors(!S.autoColors));
 $('swatches').addEventListener('click', e => { const b = e.target.closest('.sw'); if (b) setParam('fill', b.dataset.c); });
 $('customColor').addEventListener('input', e => { e.target.parentElement.style.background = e.target.value; setParam('fill', e.target.value); });
 
@@ -326,25 +330,24 @@ function releaseWake() { try { wakeLock?.release(); } catch (e) {} wakeLock = nu
 
 /* chips + dial */
 function buildChips() {
-  const list = CHIPS[S.mode].map(k => TOGGLES[k]
-    ? '<button type="button" class="tog" data-k="' + k + '" aria-pressed="' + tget(k) + '">' + TOGGLES[k].label + '</button>'
-    : '<button type="button" data-k="' + k + '">' + (k === 'fill' ? 'fill' : k === 'palette' ? 'palette' : PARAMS[k].label) + '</button>');
-  // a captured photo gets the refine brush, and a corner editor when flattened
-  if (cam.dataset.state === 'review' && still) {
-    list.splice(1, 0, '<button type="button" class="act" data-k="refine">refine</button>');
-    if (S.flatten) list.splice(CHIPS[S.mode].indexOf('flatten') + 2, 0, '<button type="button" class="act" data-k="crop">adjust corners</button>');
-  }
-  $('chips').innerHTML = list.join('');
+  const k1 = mainKey(), k3 = S.mode === 'color' ? 'palette' : 'fill';
+  let h = '<button type="button" data-k="' + k1 + '">' + PARAMS[k1].label + '</button>' +
+          '<button type="button" data-k="detail">detail</button>' +
+          '<button type="button" data-k="' + k3 + '">' + (k3 === 'fill' ? 'color' : 'palette') + '</button>';
+  // a captured photo gets the tools
+  if (cam.dataset.state === 'review' && still)
+    h += '<span class="sep" aria-hidden="true"></span>' +
+      '<button type="button" class="act icon" data-k="refine" aria-label="Erase" title="erase"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L13 19"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg></button>' +
+      '<button type="button" class="act icon" data-k="crop" aria-label="Crop" title="crop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg></button>';
+  $('chips').innerHTML = h;
   syncChips();
 }
 function syncChips() {
-  for (const b of $('chips').children) {
-    const k = b.dataset.k;
-    if (TOGGLES[k]) b.setAttribute('aria-pressed', tget(k)); else b.classList.toggle('on', k === active);
-  }
+  for (const b of $('chips').querySelectorAll('button')) b.classList.toggle('on', b.dataset.k === active);
 }
 function select(k) {
-  if (!CHIPS[S.mode].includes(k) || TOGGLES[k]) k = S.mode === 'shapes' ? 'thr' : 'ncol';
+  const ok = [mainKey(), 'detail', S.mode === 'color' ? 'palette' : 'fill'];
+  if (!ok.includes(k)) k = mainKey();
   active = k; syncChips();
   try { localStorage.setItem('vc-active', k); } catch (e) {}
   $('dial').hidden = k === 'fill' || k === 'palette';
@@ -352,13 +355,10 @@ function select(k) {
   $('palRow').hidden = k !== 'palette';
   if (k === 'palette') renderPalette();
   updateDial();
-  const b = $('chips').querySelector('[data-k="' + k + '"]');
-  if (b) b.scrollIntoView({ inline:'center', block:'nearest', behavior:'smooth' });
 }
-function adjustable() { return CHIPS[S.mode].filter(k => !TOGGLES[k]); }
 function updateDial() {
   if (active === 'fill' || active === 'palette') {
-    $('dialName').textContent = active === 'fill' ? 'fill' : (lastPalette ? 'palette · tap a color' : 'palette');
+    $('dialName').textContent = active === 'fill' ? 'color' : (lastPalette ? 'tap a color to change it' : 'palette');
     $('dialNum').textContent = ''; $('dialAuto').hidden = true; return;
   }
   const p = PARAMS[active], dl = $('dial'), t = $('dialTicks'), v = S[active];
@@ -369,8 +369,9 @@ function updateDial() {
   t.style.transform = 'translateX(' + (dl.clientWidth / 2 - 1 - (v - p.min) * p.px) + 'px)';
   $('dialName').textContent = p.label;
   $('dialNum').textContent = p.fmt(v);
-  $('dialAuto').hidden = active !== 'thr';
-  $('dialAuto').setAttribute('aria-pressed', S.auto);
+  const hasAuto = active === 'thr' || active === 'ncol';
+  $('dialAuto').hidden = !hasAuto;
+  $('dialAuto').setAttribute('aria-pressed', active === 'ncol' ? S.autoColors : S.auto);
   dl.setAttribute('aria-label', p.label); dl.setAttribute('aria-valuenow', v);
   dl.setAttribute('aria-valuemin', p.min); dl.setAttribute('aria-valuemax', p.max);
 }
@@ -382,13 +383,11 @@ $('chips').addEventListener('click', e => {
   const k = b.dataset.k;
   if (k === 'crop') enterCrop();
   else if (k === 'refine') enterRefine();
-  else if (TOGGLES[k]) { tset(k, !tget(k)); syncChips(); buzz(); }
   else select(k);
 });
 $('fillRow').addEventListener('click', e => { const b = e.target.closest('.csw'); if (b) { setParam('fill', b.dataset.c); buzz(); } });
-$('dialAuto').addEventListener('click', () => setAuto(!S.auto));
+$('dialAuto').addEventListener('click', () => active === 'ncol' ? setAutoColors(!S.autoColors) : setAuto(!S.auto));
 $('camMode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMode(b.dataset.v); });
-$('camViewBtn').addEventListener('click', () => setView({ vector:'overlay', overlay:'photo', photo:'vector' }[S.view]));
 
 /* the ruler: drag it like a lens ring; a flick keeps it turning */
 let dd = null, flingRaf = 0;
@@ -470,6 +469,7 @@ let cropQ = null, cropDrag = -1;
 const cropSvg = $('cropSvg');
 function enterCrop() {
   if (!still) return;
+  if (!S.flatten) { S.flatten = true; manualQuad = null; persist(); }
   const [sw, sh] = dims(still), k = Math.min(1, 1600 / Math.max(sw, sh));
   cropW = Math.round(sw * k); cropH = Math.round(sh * k);
   cam.dataset.state = 'crop';
@@ -514,6 +514,7 @@ function leaveCrop(apply) {
 }
 $('cropDone').addEventListener('click', () => leaveCrop(true));
 $('cropAuto').addEventListener('click', () => { manualQuad = null; leaveCrop(false); });
+$('cropOff').addEventListener('click', () => { cropSvg.setAttribute('hidden', ''); cropSvg.innerHTML = ''; S.flatten = false; manualQuad = null; strokes = []; redoStack = []; persist(); W = H = 0; setCamState('review'); requestTrace(); });
 
 /* ---------- camera stream ---------- */
 async function openStream() {
@@ -769,8 +770,7 @@ $('dlBtn').addEventListener('click', save);
 $('camSave').addEventListener('click', save);
 $('copyBtn').addEventListener('click', copySvg);
 $('camCopy').addEventListener('click', copySvg);
-function showCode(open) { const c = $('code'); c.hidden = !open; $('codeBtn').textContent = open ? 'hide code' : 'show code'; $('codeBtn').setAttribute('aria-expanded', open); if (open) c.value = lastSvg; }
-$('codeBtn').addEventListener('click', () => showCode($('code').hidden));
+function showCode(open) { const c = $('code'); c.hidden = !open; if (open) c.value = lastSvg; }
 
 
 /* ---------- palette: tap a colour to recolour or remove it ---------- */
@@ -864,55 +864,81 @@ let installEvt = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (sheetMode === 'settings') renderSettings(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/tools/vectorcam-sw.js', { scope:'/tools/vectorcam' }).catch(() => {});
 
-// [group, [key, label, options, shown-when, note]]
+// [group, [key, label, options | {range:[min,max,step], fmt}, shown-when, note]]
 const SETTINGS = [
-  ['tracing', [
-    ['style', 'trace shapes as', [['fill', 'filled shapes'], ['line', 'center lines']], null, 'Center lines turn pen and marker drawings into single strokes you can restyle.'],
-    ['lineW', 'line width', [[0, 'match drawing'], [1, '1'], [2, '2'], [4, '4'], [8, '8'], [16, '16']], () => S.style === 'line'],
-    ['snap', 'snap to perfect shapes', [[0, 'off'], [1, 'gentle'], [2, 'strong']], null, 'Near-circles become true ellipses; straight-sided shapes square up to each other and the page.'],
-    ['fine', 'fine detail', [[false, 'off'], [true, 'trace at 2×']], null, 'Small images and thin lines come out crisper. Slower.'],
-  ]],
-  ['color', [
-    ['autoColors', 'number of colors', [[true, 'automatic'], [false, 'set with the dial']], null, 'Automatic picks how many colors the picture really has.'],
-    ['layering', 'color layers', [['stack', 'stacked'], ['cut', 'cut out']], null, 'Stacked never shows gaps. Cut out gives every color its own shape, with nothing hidden underneath.'],
-  ]],
   ['export', [
     ['format', 'file type', [['svg', 'SVG'], ['png', 'PNG'], ['pdf', 'PDF']]],
-    ['size', 'size written in the file', [['fit', 'fit to screen'], ['px', 'pixels'], ['real', 'real size']], null, 'Fit lets phones show the whole drawing. Real size uses millimetres for a flattened Letter or A4 page.'],
+    ['size', 'size in the file', [['fit', 'fit to screen'], ['px', 'pixels'], ['real', 'real size']], null, 'Real size uses millimetres for a cropped Letter or A4 page.'],
     ['paper', 'page', [['auto', 'detect'], ['letter', 'letter'], ['a4', 'A4']], () => S.size === 'real'],
     ['pngScale', 'PNG resolution', [[1, '1×'], [2, '2×'], [4, '4×']], () => S.format === 'png'],
   ]],
-  ['refine', [
-    ['brush', 'brush size', [[0.015, 'small'], [0.035, 'medium'], [0.07, 'large']]],
-  ]],
   ['library', [
-    ['history', 'keep a history', [[true, 'on'], [false, 'off']], null, 'Saved only on this device.'],
+    ['history', 'keep recent captures', [[true, 'on'], [false, 'off']], null, 'Saved only on this device.'],
     ['historyMax', 'keep the last', [[10, '10'], [30, '30'], [100, '100']], () => S.history],
   ]],
   ['app', [
     ['autoCam', 'open straight to the camera', [[true, 'on'], [false, 'off']], () => standalone],
   ]],
 ];
+const ADVANCED = [
+  ['shape', [
+    ['snap', 'snap to perfect shapes', [[0, 'off'], [1, 'gentle'], [2, 'strong']], null, 'Near-circles become true ellipses; straight-sided shapes square up.'],
+    ['curves', 'edges', [[true, 'curves'], [false, 'straight segments']]],
+    ['lineW', 'line width', [[0, 'match drawing'], [1, '1'], [2, '2'], [4, '4'], [8, '8'], [16, '16']], () => S.style === 'line' && S.mode === 'shapes'],
+    ['layering', 'color layers', [['stack', 'stacked'], ['cut', 'cut out']], () => S.mode === 'color', 'Stacked never shows gaps. Cut out gives every color its own shape.'],
+    ['keepBg', 'background color', [[true, 'keep'], [false, 'leave out']], () => S.mode === 'color'],
+  ]],
+  ['cleanup', [
+    ['smooth', 'smoothing', { range:[0, 6, 1], fmt:PARAMS.smooth.fmt }, null, 'The detail dial sets these four together; fine-tune them here.'],
+    ['speck', 'remove specks', { range:[0, 300, 5], fmt:PARAMS.speck.fmt }],
+    ['denoise', 'denoise', { range:[0, 10, 1], fmt:PARAMS.denoise.fmt }],
+    ['corner', 'corners', { range:[0, 10, 1], fmt:PARAMS.corner.fmt }],
+    ['adaptive', 'even out lighting', [[false, 'off'], [true, 'on']], null, 'For shadows across paper. Always on when cropping to a page; leave it off for photos.'],
+    ['invert', 'trace', [[false, 'dark areas'], [true, 'light areas']], () => S.mode === 'shapes'],
+  ]],
+  ['image', [
+    ['flatten', 'crop to the page automatically', [[false, 'off'], [true, 'on']]],
+    ['fine', 'fine detail', [[false, 'off'], [true, 'trace at 2×']], null, 'Crisper thin lines on small images. Slower.'],
+    ['res', 'trace resolution', [[1200, '1200 px'], [2000, '2000 px'], [2800, '2800 px']]],
+    ['view', 'show', [['vector', 'vector'], ['overlay', 'over photo'], ['photo', 'photo']]],
+    ['anchors', 'anchor points', [[false, 'hide'], [true, 'show']]],
+  ]],
+];
+let showAdvanced = false;
 let sheetMode = null;
 function openSheet(mode) { sheetMode = mode; $('sheetTitle').textContent = mode; $('sheet').hidden = false; if (mode === 'settings') renderSettings(); else renderLibrary(); }
 function closeSheet() { $('sheet').hidden = true; sheetMode = null; }
 $('sheet').addEventListener('click', e => { if (e.target === $('sheet')) closeSheet(); });
 $('sheetClose').addEventListener('click', closeSheet);
+function settingRow([k, label, opts, when, note]) {
+  if (when && !when()) return '';
+  if (opts.range) {
+    const [mn, mx, st] = opts.range;
+    return '<div class="set-row"><div class="set-range"><span>' + label + '</span><b data-v="' + k + '">' + opts.fmt(S[k]) + '</b>' +
+      '<input type="range" data-k="' + k + '" min="' + mn + '" max="' + mx + '" step="' + st + '" value="' + S[k] + '" aria-label="' + label + '"></div>' +
+      (note ? '<small>' + note + '</small>' : '') + '</div>';
+  }
+  return '<div class="set-row"><span>' + label + '</span><div class="opts" data-k="' + k + '">' +
+    opts.map(([v, t], i) => '<button type="button" data-i="' + i + '" aria-pressed="' + (S[k] === v) + '">' + t + '</button>').join('') +
+    '</div>' + (note ? '<small>' + note + '</small>' : '') + '</div>';
+}
 function renderSettings() {
+  const top = $('sheetBody').scrollTop;
   let h = '';
   for (const [g, rows] of SETTINGS) {
-    let inner = '';
-    for (const [k, label, opts, when, note] of rows) {
-      if (when && !when()) continue;
-      inner += '<div class="set-row"><span>' + label + '</span><div class="opts" data-k="' + k + '">' +
-        opts.map(([v, t], i) => '<button type="button" data-i="' + i + '" aria-pressed="' + (S[k] === v) + '">' + t + '</button>').join('') +
-        '</div>' + (note ? '<small>' + note + '</small>' : '') + '</div>';
-    }
+    let inner = rows.map(settingRow).join('');
     if (g === 'app') inner += installHtml();
     if (inner) h += '<div class="set-group"><h3>' + g + '</h3>' + inner + '</div>';
   }
+  h += '<button type="button" class="adv-toggle" id="advToggle" aria-expanded="' + showAdvanced + '">' + (showAdvanced ? '− hide advanced' : '+ advanced') + '</button>';
+  if (showAdvanced) {
+    for (const [g, rows] of ADVANCED) { const inner = rows.map(settingRow).join(''); if (inner) h += '<div class="set-group"><h3>' + g + '</h3>' + inner + '</div>'; }
+    h += '<button type="button" class="sheet-btn ghost" id="resetAdv">reset advanced to defaults</button>';
+  }
   $('sheetBody').innerHTML = h;
+  $('sheetBody').scrollTop = top;
 }
+const ADV_DEFAULTS = { snap:0, corner:8, curves:true, lineW:0, layering:'stack', keepBg:true, smooth:1, speck:4, denoise:1, adaptive:false, invert:false, flatten:false, fine:false, res:2000, view:'vector', anchors:false, detail:8 };
 function installHtml() {
   if (standalone) return '<div class="set-row"><small>Vector Cam is installed and running as an app.</small></div>';
   if (installEvt) return '<button type="button" class="sheet-btn" id="installBtn">install vector cam</button><small>Opens full screen from your home screen and works offline.</small>';
@@ -921,15 +947,33 @@ function installHtml() {
     ? 'In Safari, tap Share, then Add to Home Screen. It opens full screen with no browser bars, and works offline.'
     : 'In your browser menu choose Install app or Add to Home Screen. It opens full screen and works offline.') + '</small></div>';
 }
+const ALL_ROWS = SETTINGS.concat(ADVANCED).flatMap(g => g[1]);
+function applySetting(k, v) {
+  if (k === 'view') setView(v);
+  else if (k === 'res') setRes(v);
+  else setParam(k, v, true);
+  if (camOpen) { buildChips(); select(active); if (cam.dataset.state === 'refine') updateRefineUI(); }
+}
+$('sheetBody').addEventListener('input', e => {
+  const r = e.target.closest('input[type=range][data-k]'); if (!r) return;
+  const k = r.dataset.k; applySetting(k, +r.value);
+  const b = $('sheetBody').querySelector('b[data-v="' + k + '"]'); if (b) b.textContent = PARAMS[k].fmt(S[k]);
+});
 $('sheetBody').addEventListener('click', async e => {
   const b = e.target.closest('button, [data-id]'); if (!b) return;
   const o = b.closest('.opts');
   if (o) {
-    const k = o.dataset.k, row = SETTINGS.flatMap(g => g[1]).find(r => r[0] === k);
-    setParam(k, row[2][+b.dataset.i][0]);
+    const k = o.dataset.k, row = ALL_ROWS.find(r => r[0] === k);
+    applySetting(k, row[2][+b.dataset.i][0]);
     renderSettings();
-    if (camOpen) { buildChips(); select(active); if (cam.dataset.state === 'refine') updateRefineUI(); }
     return;
+  }
+  if (b.id === 'advToggle') { showAdvanced = !showAdvanced; renderSettings(); return; }
+  if (b.id === 'resetAdv') {
+    for (const [k, v] of Object.entries(ADV_DEFAULTS)) S[k] = v;
+    manualQuad = null; syncInline(); applyView(); if (still) { sendStill(); requestTrace(); }
+    if (camOpen) { buildChips(); select(active); }
+    renderSettings(); toast('Advanced settings reset'); return;
   }
   if (b.id === 'installBtn' && installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch (err) {} installEvt = null; renderSettings(); return; }
   if (b.dataset.del) { e.stopPropagation(); await dbDel(+b.dataset.del); renderLibrary(); return; }

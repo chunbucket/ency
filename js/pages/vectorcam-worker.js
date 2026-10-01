@@ -81,7 +81,9 @@ function trace(img, S, live, manualQuad) {
       const r = Math.max(1, Math.round((1 + S.denoise / 4 + sig / 12) * Math.max(sc, 0.4)));
       L = guided(L, w, h, r, (kk * Math.max(6, 3 * sig)) ** 2);
     }
-    if (S.adaptive) L = flattenLighting(L, w, h);
+    // lighting correction is for paper; on a photo it flattens the very
+    // contrast the trace is made of
+    if (S.adaptive || quad) L = flattenLighting(L, w, h);
     autoThr = otsu(L);
     const t = (S.auto ? autoThr : S.thr) + 0.5;   // otsu splits at "<= t"; the field is strict
     const sf = new Float32Array(n);
@@ -1024,7 +1026,7 @@ function colorLayers(data, w, h, S, sc, live, anchors, edits) {
   let k = S.ncol;
   if (S.autoColors) {
     if (live && liveK && (liveFrame++ % 15)) k = liveK;
-    else { k = pickK(sl, Math.max(2, Math.min(10, S.ncol))); if (live) liveK = k; }
+    else { k = pickK(sl, 8); if (live) liveK = k; }
   }
   let C = (live && prevC && prevC.length === k) ? prevC.map(c => c.slice()) : seedCenters(sl, k);
   C = kmeans(sl, C, live && prevC && prevC.length === k ? 3 : 12);

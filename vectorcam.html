@@ -192,7 +192,7 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
 .fillrow { display: flex; justify-content: center; gap: 14px; height: 44px; align-items: center; }
 .csw { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255,255,255,.3); padding: 0; cursor: pointer; }
 .csw[aria-pressed="true"] { box-shadow: 0 0 0 3px #000, 0 0 0 5px #e8e8e8; }
-.chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 16px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.chips { display: flex; gap: 8px; overflow-x: auto; justify-content: safe center; padding: 2px 16px; scrollbar-width: none; scroll-snap-type: x proximity; }
 .chips::-webkit-scrollbar { display: none; }
 .chips button {
   appearance: none; flex: none; scroll-snap-align: center; cursor: pointer;
@@ -225,7 +225,10 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
 .ib.txt { font-size: 11px; letter-spacing: .1em; }
 .cropsvg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 3; }
 .cropsvg .h { pointer-events: all; cursor: grab; touch-action: none; }
-.chips button.act { border-style: dashed; color: #fff; }
+.chips button.act { background: transparent; border-color: rgba(255,255,255,.28); color: #fff; }
+.chips button.icon { padding: 0; width: 40px; height: 34px; display: grid; place-items: center; }
+.chips button.icon svg { width: 17px; height: 17px; }
+.chips .sep { flex: none; width: 1px; background: rgba(255,255,255,.18); margin: 6px 2px; }
 .busy-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #d08a8a; margin-right: 6px; vertical-align: 1px; animation: blink .9s infinite; }
 .cam.bare .cam-top, .cam.bare .cam-ctl { opacity: 0; pointer-events: none; }
 .cam.bare .cam-top > * { pointer-events: none; }
@@ -277,6 +280,10 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
 .sheet-btn { appearance: none; width: 100%; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.08); color: #e8e8e8; font: 12px/1 var(--mono);
   letter-spacing: .1em; padding: 14px; border-radius: 10px; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px; }
 .sheet-btn.ghost { background: transparent; color: #a0a0a0; }
+.set-range { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
+.set-range input { grid-column: 1 / -1; width: 100%; accent-color: #c0c0c0; height: 28px; margin: 0; }
+.set-range b { font-weight: 400; color: #8a8a8a; font-size: 11px; }
+.adv-toggle { appearance: none; background: none; border: 0; color: #a8a8a8; font: 11px/1 var(--mono); letter-spacing: .14em; padding: 14px 0 6px; cursor: pointer; text-align: left; }
 .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
 .lib-item { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,.12); background: #d4d4d4; aspect-ratio: 1; cursor: pointer; padding: 0; }
 .lib-item img { width: 100%; height: 100%; object-fit: contain; display: block; }
@@ -285,6 +292,7 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
 .lib-empty { color: #8a8a8a; padding: 10px 0 4px; }
 html.app .nav, html.app .links { display: none; }
 html.app .vc { padding-top: calc(28px + env(safe-area-inset-top, 0px)); }
+@media (max-width: 420px) { .chips { gap: 5px; padding: 2px 8px; } .chips button { padding: 10px 9px; letter-spacing: .04em; } .chips button.icon { width: 36px; padding: 0; } }
 </style>
 </head>
 <body data-room="tools">
@@ -323,34 +331,35 @@ html.app .vc { padding-top: calc(28px + env(safe-area-inset-top, 0px)); }
         <button type="button" class="btn" id="libBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> library</button>
         <button type="button" class="btn" id="setBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg> settings</button>
       </div>
-      <p class="hint desk">Start the camera for a full-screen live trace, or tune an image here with the dials. Click the image to open it full screen. Nothing leaves your device.</p>
-      <p class="hint touch">Start the camera and drag across the picture to adjust it live. Tap the image above to edit it full screen. Nothing leaves your device.</p>
+      <p class="hint desk">Start the camera, or open an image and tune it with the two dials. More options are in settings. Nothing leaves your device.</p>
+      <p class="hint touch">Start the camera and drag across the picture to adjust it. Nothing leaves your device.</p>
     </section>
 
     <aside class="dials">
       <div class="group">
-        <span class="label">mode</span>
         <div class="seg" id="modeSeg">
           <button type="button" data-v="shapes" aria-pressed="true">shapes</button>
+          <button type="button" data-v="lines" aria-pressed="false">lines</button>
           <button type="button" data-v="color" aria-pressed="false">color</button>
-        </div>
-        <span class="label">view</span>
-        <div class="seg" id="viewSeg">
-          <button type="button" data-v="photo" aria-pressed="false">photo</button>
-          <button type="button" data-v="vector" aria-pressed="true">vector</button>
-          <button type="button" data-v="overlay" aria-pressed="false">overlay</button>
         </div>
       </div>
 
-      <div class="group" id="shapesGroup">
-        <div class="ctl">
+      <div class="group">
+        <div class="ctl" id="shapesGroup">
           <div class="ctl-head"><label for="thr">threshold</label>
             <span class="row"><span class="val" id="thrVal"></span><button type="button" class="mini" id="autoBtn" aria-pressed="true">auto</button></span></div>
           <input type="range" id="thr" min="1" max="254" value="128">
         </div>
-        <label class="check"><input type="checkbox" id="adaptive" checked> even out lighting</label>
-        <label class="check"><input type="checkbox" id="invert"> invert (trace light areas)</label>
+        <div class="ctl" id="colorGroup" hidden>
+          <div class="ctl-head"><label for="ncol">colors</label>
+            <span class="row"><span class="val" id="ncolVal"></span><button type="button" class="mini" id="autoColBtn" aria-pressed="true">auto</button></span></div>
+          <input type="range" id="ncol" min="2" max="10" value="5">
+        </div>
         <div class="ctl">
+          <div class="ctl-head"><label for="detail">detail</label><span class="val" id="detailVal"></span></div>
+          <input type="range" id="detail" min="1" max="10" value="7">
+        </div>
+        <div class="ctl" id="fillGroup">
           <span class="label">fill</span>
           <div class="swatches" id="swatches">
             <button type="button" class="sw" data-c="#111111" style="background:#111111" aria-label="Black" aria-pressed="true"></button>
@@ -362,54 +371,9 @@ html.app .vc { padding-top: calc(28px + env(safe-area-inset-top, 0px)); }
         </div>
       </div>
 
-      <div class="group" id="colorGroup" hidden>
-        <div class="ctl">
-          <div class="ctl-head"><label for="ncol">colors</label><span class="val" id="ncolVal"></span></div>
-          <input type="range" id="ncol" min="2" max="10" value="5">
-        </div>
-        <label class="check"><input type="checkbox" id="keepBg" checked> keep background layer</label>
-      </div>
-
-      <div class="group">
-        <div class="ctl">
-          <div class="ctl-head"><label for="detail">detail</label><span class="val" id="detailVal"></span></div>
-          <input type="range" id="detail" min="1" max="10" value="7">
-        </div>
-        <div class="ctl">
-          <div class="ctl-head"><label for="smooth">smoothing</label><span class="val" id="smoothVal"></span></div>
-          <input type="range" id="smooth" min="0" max="6" value="2">
-        </div>
-        <div class="ctl">
-          <div class="ctl-head"><label for="corner">corners</label><span class="val" id="cornerVal"></span></div>
-          <input type="range" id="corner" min="0" max="10" value="5">
-        </div>
-        <div class="ctl">
-          <div class="ctl-head"><label for="denoise">denoise</label><span class="val" id="denoiseVal"></span></div>
-          <input type="range" id="denoise" min="0" max="10" value="3">
-        </div>
-        <div class="ctl">
-          <div class="ctl-head"><label for="speck">remove specks</label><span class="val" id="speckVal"></span></div>
-          <input type="range" id="speck" min="0" max="300" step="5" value="20">
-        </div>
-        <label class="check"><input type="checkbox" id="flatten"> flatten page (find the paper and square it up)</label>
-        <label class="check"><input type="checkbox" id="curves" checked> curved paths</label>
-        <label class="check"><input type="checkbox" id="anchors"> show anchor points</label>
-        <div class="ctl">
-          <span class="label">trace resolution (px)</span>
-          <div class="seg" id="resSeg">
-            <button type="button" data-v="1200" aria-pressed="false">1200</button>
-            <button type="button" data-v="2000" aria-pressed="true">2000</button>
-            <button type="button" data-v="2800" aria-pressed="false">2800</button>
-          </div>
-        </div>
-      </div>
-
       <div class="group">
         <button type="button" class="btn primary" id="dlBtn">download</button>
-        <div class="two">
-          <button type="button" class="btn" id="copyBtn">copy svg</button>
-          <button type="button" class="btn" id="codeBtn" aria-expanded="false">show code</button>
-        </div>
+        <button type="button" class="btn" id="copyBtn">copy svg</button>
         <textarea id="code" readonly hidden aria-label="SVG code"></textarea>
       </div>
     </aside>
@@ -427,6 +391,7 @@ html.app .vc { padding-top: calc(28px + env(safe-area-inset-top, 0px)); }
     <div class="cam-mid">
       <div class="cam-mode" id="camMode">
         <button type="button" data-v="shapes" aria-pressed="true">shapes</button>
+        <button type="button" data-v="lines" aria-pressed="false">lines</button>
         <button type="button" data-v="color" aria-pressed="false">color</button>
       </div>
       <div class="cam-read" id="camRead"></div>
@@ -434,13 +399,12 @@ html.app .vc { padding-top: calc(28px + env(safe-area-inset-top, 0px)); }
     <div class="cam-right">
       <button type="button" class="ib refine-only" id="undoBtn" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
       <button type="button" class="ib refine-only" id="redoBtn" aria-label="Redo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
-      <button type="button" class="ib not-refine" id="camViewBtn" aria-label="Change view"><span id="camViewLbl">vec</span></button>
       <button type="button" class="ib not-refine" id="camSetBtn" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     </div>
   </div>
   <div class="cam-croptip refine-only" id="refineTip">paint over what to remove</div>
   <div class="cam-croptip crop-only">drag the corners onto the edges of the page</div>
-  <div class="cam-hint" id="camHint">drag ↔ on the picture to adjust<br>swipe ↕ to switch setting<br>hold to see the photo<br>tap to hide controls</div>
+  <div class="cam-hint" id="camHint">drag across the picture to adjust<br>hold it to see the photo</div>
   <div class="cam-ctl" id="camCtl">
     <div class="dial-head"><span class="dial-name" id="dialName"></span><b class="dial-num" id="dialNum"></b><button type="button" class="dial-auto" id="dialAuto" aria-pressed="true">auto</button></div>
     <div class="dial" id="dial" role="slider" tabindex="0" aria-label="Setting"><div class="dial-ticks" id="dialTicks"></div><div class="dial-mark"></div></div>
@@ -471,6 +435,7 @@ html.app .vc { padding-top: calc(28px + env(safe-area-inset-top, 0px)); }
     <div class="slot r">
       <button type="button" class="ib big live-only" id="flipBtn" aria-label="Switch camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg></button>
       <button type="button" class="ib big refine-only txt" id="sizeBtn" aria-label="Brush size">M</button>
+      <button type="button" class="ib big crop-only txt" id="cropOff" aria-label="Don't crop">none</button>
       <button type="button" class="ib big review-only" id="camCopy" aria-label="Copy SVG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg></button>
     </div>
   </div>
@@ -484,6 +449,6 @@ html.app .vc { padding-top: calc(28px + env(safe-area-inset-top, 0px)); }
 <input type="color" id="palPick" class="vsrc" aria-label="Recolour">
 <div class="toast" id="toast" role="status"></div>
 
-<script type="module" src="/js/pages/vectorcam.js?v=7"></script>
+<script type="module" src="/js/pages/vectorcam.js?v=8"></script>
 </body>
 </html>

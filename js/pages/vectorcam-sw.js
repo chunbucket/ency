@@ -5,11 +5,11 @@
  * icons are served from cache and refreshed in the background. Nothing outside
  * the tool is touched. */
 
-const CACHE = 'vectorcam-v7';
+const CACHE = 'vectorcam-v8';
 const SHELL = [
   '/tools/vectorcam',
-  '/js/pages/vectorcam.js?v=7',
-  '/js/pages/vectorcam-worker.js?v=7',
+  '/js/pages/vectorcam.js?v=8',
+  '/js/pages/vectorcam-worker.js?v=8',
   '/js/chrome.js',
   '/styles/site.css',
   '/tools/vectorcam.webmanifest',
