@@ -306,7 +306,10 @@ function securityHeaders(res, p) {
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  // the camera is off everywhere except Vector Cam, which is nothing without it
+  res.setHeader('Permissions-Policy', p === '/tools/vectorcam'
+    ? 'camera=(self), microphone=(), geolocation=()'
+    : 'camera=(), microphone=(), geolocation=()');
   const scriptSrc = (p === '/studio' || p === '/studio.html' || p === '/lab')
     ? "script-src 'self' 'unsafe-inline'"
     : "script-src 'self'";
@@ -345,6 +348,9 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/tools' || p === '/tools.html')
       return servePage(res, 'tools.html', { head: head('/tools'), tools: renderGrid(TOOLS) });
+
+    if (p === '/tools/vectorcam')
+      return servePage(res, 'vectorcam.html', { head: head('/tools/vectorcam') });
 
     if (p === '/music' || p === '/music.html')
       return servePage(res, 'music.html', { head: head('/music'), music: renderSections(MUSIC_SECTIONS) });

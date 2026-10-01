@@ -19,11 +19,13 @@ tools.html        \ rooms: markup plus a {{…}} slot the server fills
 music.html        /
 studio.html       gated: the mesh plus every dial
 lab.html          mesh v2 prototype, unlisted
+vectorcam.html    /tools/vectorcam — live camera to SVG; the one page with camera=(self)
 server.mjs        the whole backend — static, pages, gate/join, lobby, auth
 styles/site.css   one stylesheet; <html class="gate|page"> settles the rest
 js/
   pages/gate.js   entry: the gate, which hosts the rooms
   pages/room.js   entry: a room loaded directly, with its own backdrop
+  pages/vectorcam.js  entry: Vector Cam's tracer and camera
   gate.js         the gate — join flow, lobby, lock; returns the shell
   router.js       soft routing; never touches anything outside <main>
   chrome.js       the corner nav and the links row

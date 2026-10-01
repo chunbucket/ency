@@ -20,6 +20,7 @@ export const TOOLS = {
   wide: true,
   items: [
     { title: 'Crates', href: '/crates', art: '/media/crates/card.png' },
+    { title: 'Vector Cam', href: '/tools/vectorcam', art: '/media/vectorcam/card.svg' },
   ],
 };
 

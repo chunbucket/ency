@@ -71,12 +71,18 @@ const PAGES = {
       'Drop a link, get a record. Crates files the audio as FLAC with art, title ' +
       'and source embedded, analysed for BPM and key. Free and open source.',
   },
+  '/tools/vectorcam': {
+    title: 'ency — vector cam',
+    description:
+      'Point your camera at anything and get a clean SVG. Live tracing with ' +
+      'adjustable threshold, colour and detail, all in the browser.',
+  },
 };
 
 /* Pages a crawler should see, and roughly how often each changes. The
  * portfolio is deliberately absent: it is noindex, and a Disallow line in
  * robots.txt would publish the very path it is meant to keep quiet. */
-export const INDEXABLE = ['/', '/music', '/services', '/tools', '/crates'];
+export const INDEXABLE = ['/', '/music', '/services', '/tools', '/crates', '/tools/vectorcam'];
 
 const esc = s => String(s).replace(/[&<>"]/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
