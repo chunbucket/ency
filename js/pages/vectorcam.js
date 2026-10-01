@@ -6,6 +6,10 @@
  * light to dark so they never leave gaps. The shutter re-traces the frozen
  * frame at full resolution.
  *
+ * Two surfaces drive one settings object (S): the desktop dial card, and a
+ * full-screen camera layer built for phones, where a drag across the picture
+ * scrubs the active setting and a ruler dial sits above the shutter.
+ *
  * This page is the one place the site's Permissions-Policy lets the camera in
  * (camera=(self), set per-path in server.mjs). */
 
@@ -19,7 +23,7 @@ const LIVE_RES = 420;      // trace size while the viewfinder is running
 const REF = 900;           // slider values are tuned for this size; other sizes scale to match
 
 let src = null, W = 0, H = 0, rgb = null, lum = null, autoThr = 128, lastSvg = '', prevC = null;
-let live = false, stream = null, facing = 'environment', raf = 0, lastTick = 0, gap = 50, fpsT = [], fromCamera = false;
+let live = false, stream = null, facing = 'environment', raf = 0, lastTick = 0, gap = 50, fpsT = [];
 const photo = $('photo'), pctx = photo.getContext('2d', { willReadFrequently:true }), vid = $('vid');
 
 const dims = s => [s.videoWidth || s.naturalWidth || s.width, s.videoHeight || s.naturalHeight || s.height];
@@ -52,6 +56,7 @@ function layoutStage(sw, sh) {
   const rx = $('rulerX').children, ry = $('rulerY').children;
   rx[1].textContent = Math.round(sw / 2); rx[2].textContent = sw + ' px';
   ry[1].textContent = sh + ' px';
+  fitStage();
 }
 function blur(a) {
   const o = new Float32Array(a.length), t = new Float32Array(a.length);
@@ -195,7 +200,7 @@ function run() {
   let body = '', paths = 0, nodes = 0;
   if (S.mode === 'shapes') {
     const t = S.auto ? autoThr : S.thr;
-    if (S.auto && S.thr !== t) { S.thr = t; $('thr').value = t; }
+    if (S.auto && S.thr !== t) { S.thr = t; $('thr').value = t; if (camOpen && active === 'thr') updateDial(); }
     $('thrVal').textContent = t;
     const m = new Uint8Array(n);
     for (let i = 0; i < n; i++) m[i] = (lum[i] <= t) !== S.invert ? 1 : 0;
@@ -225,43 +230,272 @@ function run() {
     anchorSvg = '<g fill="#e8e8e8" stroke="#000" stroke-width="' + fm(rr/3) + '">' + anchors.map(p => '<circle cx="' + fm(p[0]) + '" cy="' + fm(p[1]) + '" r="' + fm(rr) + '"/>').join('') + '</g>';
   }
   out.innerHTML = body + anchorSvg;
-  // dark shapes on a dark viewfinder vanish: back them with paper. Only the
-  // preview gets this; the exported SVG stays transparent.
-  const c = S.fill.replace('#', ''), fl = parseInt(c.slice(0, 2), 16) * .3 + parseInt(c.slice(2, 4), 16) * .59 + parseInt(c.slice(4, 6), 16) * .11;
-  $('stage').style.background = (S.mode === 'shapes' ? fl < 110 : !S.keepBg) ? '#d4d4d4' : 'transparent';
   if (!$('code').hidden && !live) $('code').value = lastSvg;
   const ms = performance.now() - t0;
-  let extra = '';
-  if (live) {
-    const now = performance.now(); fpsT.push(now); while (fpsT.length && now - fpsT[0] > 1000) fpsT.shift();
-    extra = '<span><b>' + fpsT.length + '</b> fps</span>';
-  }
-  const kb = new Blob([lastSvg]).size / 1024;
+  let fps = 0;
+  if (live) { const now = performance.now(); fpsT.push(now); while (fpsT.length && now - fpsT[0] > 1000) fpsT.shift(); fps = fpsT.length; }
+  const kb = new Blob([lastSvg]).size / 1024, pl = paths + ' ' + (paths === 1 ? 'path' : 'paths');
   $('readout').innerHTML = (live ? '<span>live preview <b>' + W + ' × ' + H + '</b></span>' : '<span><b>' + W + ' × ' + H + '</b> px traced</span>') +
     '<span><b>' + paths + '</b> ' + (paths === 1 ? 'path' : 'paths') + '</span><span><b>' + nodes.toLocaleString() + '</b> nodes</span>' +
-    (live ? '' : '<span><b>' + kb.toFixed(1) + '</b> KB</span>') + '<span>' + Math.round(ms) + ' ms</span>' + extra;
+    (live ? '' : '<span><b>' + kb.toFixed(1) + '</b> KB</span>') + '<span>' + Math.round(ms) + ' ms</span>' + (live ? '<span><b>' + fps + '</b> fps</span>' : '');
+  if (camOpen && !peek) $('camRead').textContent = (live ? 'live · ' : W + '×' + H + ' · ') + pl + ' · ' + nodes.toLocaleString() + ' nodes' + (live ? ' · ' + fps + ' fps' : ' · ' + kb.toFixed(1) + ' KB');
   applyView();
   return ms;
 }
 let timer = 0;
-function schedule() { if (live) return; clearTimeout(timer); timer = setTimeout(run, 40); }   // live loop picks up changes on its own
+function schedule() { if (live) return; clearTimeout(timer); timer = setTimeout(run, 30); }   // the live loop picks changes up on its own
 
+let peek = false;
 function applyView() {
-  const out = $('out');
-  photo.hidden = S.view === 'vector';
-  out.style.display = S.view === 'photo' ? 'none' : 'block';
-  out.style.opacity = S.view === 'overlay' ? '0.75' : '1';
+  const out = $('out'), v = peek ? 'photo' : S.view;
+  photo.hidden = v === 'vector';
+  out.style.display = v === 'photo' ? 'none' : 'block';
+  out.style.opacity = v === 'overlay' ? '0.75' : '1';
+  // dark shapes on a dark viewfinder vanish: back them with paper. Preview only;
+  // the exported SVG stays transparent.
+  const c = S.fill.replace('#', ''), fl = parseInt(c.slice(0, 2), 16) * .3 + parseInt(c.slice(2, 4), 16) * .59 + parseInt(c.slice(4, 6), 16) * .11;
+  $('stage').style.background = v === 'vector' && (S.mode === 'shapes' ? fl < 110 : !S.keepBg) ? '#d4d4d4' : 'transparent';
 }
 
-/* ---------- live camera ---------- */
-function setUI(state) {   // 'idle' | 'live' | 'captured'
-  $('idleActions').hidden = state !== 'idle';
-  $('liveActions').hidden = state !== 'live';
-  $('capActions').hidden = state !== 'captured';
-  const chip = $('chip');
-  if (state === 'live') { chip.hidden = false; chip.innerHTML = '<span class="dot"></span>live'; }
-  else chip.hidden = true;
+/* ---------- settings: one setter for every control surface ---------- */
+const PARAMS = {
+  thr:    { label:'threshold', min:1, max:254, step:1, px:5,  fmt: v => v },
+  ncol:   { label:'colors',    min:2, max:10,  step:1, px:40, fmt: v => v },
+  detail: { label:'detail',    min:1, max:10,  step:1, px:40, fmt: v => v + ' / 10' },
+  smooth: { label:'smoothing', min:0, max:6,   step:1, px:48, fmt: v => v ? v : 'off' },
+  speck:  { label:'specks',    min:0, max:300, step:5, px:2,  fmt: v => v ? '< ' + v + ' px²' : 'off' },
+};
+const TOGGLES = { invert:'invert', keepBg:'background', curves:'curves', anchors:'anchors' };
+const CHIPS = {
+  shapes: ['thr', 'fill', 'detail', 'smooth', 'speck', 'invert', 'curves', 'anchors'],
+  color:  ['ncol', 'detail', 'smooth', 'speck', 'keepBg', 'curves', 'anchors'],
+};
+let active = 'thr';
+
+function setParam(k, v) {
+  if (PARAMS[k]) {
+    const p = PARAMS[k];
+    v = Math.min(p.max, Math.max(p.min, Math.round(v / p.step) * p.step));
+    if (v === S[k] && !(k === 'thr' && S.auto)) return false;
+  } else if (S[k] === v) return false;
+  S[k] = v;
+  if (k === 'thr') S.auto = false;
+  if (k === 'ncol') prevC = null;
+  syncInline(); if (camOpen) { updateDial(); syncChips(); }
+  schedule();
+  return true;
 }
+function setMode(m) {
+  if (S.mode === m) return;
+  S.mode = m; prevC = null;
+  if (!CHIPS[m].includes(active)) active = m === 'shapes' ? 'thr' : 'ncol';
+  syncInline(); if (camOpen) { buildChips(); select(active); }
+  schedule();
+}
+function setView(v) { S.view = v; syncInline(); $('camViewLbl').textContent = { vector:'vec', overlay:'mix', photo:'img' }[v]; applyView(); }
+function setAuto(on) { S.auto = on; syncInline(); if (camOpen) updateDial(); schedule(); }
+
+/* the desktop dial card mirrors S; it never holds state of its own */
+function syncInline() {
+  for (const k of ['thr', 'ncol', 'detail', 'smooth', 'speck']) { $(k).value = S[k]; const v = $(k + 'Val'); if (v) v.textContent = k === 'detail' ? S[k] + ' / 10' : PARAMS[k].fmt(S[k]); }
+  for (const k of ['invert', 'keepBg', 'curves', 'anchors']) $(k).checked = S[k];
+  $('autoBtn').setAttribute('aria-pressed', S.auto);
+  for (const [id, key] of [['modeSeg', 'mode'], ['viewSeg', 'view'], ['resSeg', 'res']])
+    for (const b of $(id).children) b.setAttribute('aria-pressed', String(b.dataset.v) === String(S[key]));
+  for (const b of $('camMode').children) b.setAttribute('aria-pressed', b.dataset.v === S.mode);
+  $('shapesGroup').hidden = S.mode !== 'shapes'; $('colorGroup').hidden = S.mode !== 'color';
+  for (const sw of $('swatches').querySelectorAll('.sw')) sw.setAttribute('aria-pressed', sw.dataset.c.toLowerCase() === S.fill.toLowerCase());
+  for (const sw of $('fillRow').querySelectorAll('.csw')) sw.setAttribute('aria-pressed', sw.dataset.c.toLowerCase() === S.fill.toLowerCase());
+}
+
+/* ---------- desktop dial card ---------- */
+function seg(id, fn) { $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) fn(b.dataset.v); }); }
+seg('modeSeg', setMode);
+seg('viewSeg', setView);
+seg('resSeg', v => { S.res = +v; syncInline(); if (!live && src) { W = H = 0; prep(S.res); schedule(); } });
+for (const k of ['thr', 'ncol', 'detail', 'smooth', 'speck']) $(k).addEventListener('input', e => setParam(k, +e.target.value));
+$('autoBtn').addEventListener('click', () => setAuto(!S.auto));
+for (const k of ['invert', 'keepBg', 'curves', 'anchors']) $(k).addEventListener('change', e => setParam(k, e.target.checked));
+$('swatches').addEventListener('click', e => { const b = e.target.closest('.sw'); if (b) setParam('fill', b.dataset.c); });
+$('customColor').addEventListener('input', e => { e.target.parentElement.style.background = e.target.value; setParam('fill', e.target.value); });
+
+/* ---------- the full-screen camera ---------- */
+const coarse = matchMedia('(pointer: coarse)').matches;
+const cam = $('cam'), camView = $('camView'), stage = $('stage');
+let camOpen = false, lastStill = null, wakeLock = null, resumeLive = false;
+
+function fitStage() {
+  if (!camOpen || !W) return;
+  const r = camView.getBoundingClientRect(), s = Math.min(r.width / W, r.height / H);
+  stage.style.width = Math.floor(W * s) + 'px'; stage.style.height = Math.floor(H * s) + 'px';
+}
+new ResizeObserver(() => { fitStage(); if (camOpen) updateDial(); }).observe(camView);
+
+function openCam(state) {
+  if (!camOpen) {
+    camOpen = true; cam.hidden = false; peek = false;
+    document.documentElement.classList.add('cam-open');
+    camView.appendChild(stage);
+    if (coarse && document.documentElement.requestFullscreen && !document.fullscreenElement)
+      document.documentElement.requestFullscreen({ navigationUI:'hide' }).catch(() => {});
+    history.pushState({ vc:'cam' }, '');     // the phone's back gesture closes the camera
+    buildChips(); select(active); setView(S.view);
+    showHint();
+  }
+  cam.dataset.state = state;
+  cam.classList.remove('bare');
+  fitStage(); updateDial();
+}
+function closeCam(fromHistory) {
+  if (!camOpen) return;
+  const wasLive = live;
+  stopLive(true); releaseWake();
+  camOpen = false; cam.hidden = true; peek = false;
+  document.documentElement.classList.remove('cam-open');
+  $('mat').appendChild(stage); stage.style.width = stage.style.height = '';
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (!fromHistory && history.state && history.state.vc) history.back();
+  if (wasLive || src === vid) { src = lastStill || sample(); W = H = 0; prep(S.res); run(); }
+  $('chip').hidden = !(src && src.isSample);
+}
+window.addEventListener('popstate', () => { if (camOpen) closeCam(true); });
+$('camClose').addEventListener('click', () => closeCam(false));
+stage.addEventListener('click', () => { if (!camOpen && src) openCam('review'); });
+
+let hintT = 0;
+function showHint() {
+  let seen = false; try { seen = localStorage.getItem('vc-hint') === '3'; } catch (e) {}
+  if (seen) return;
+  const h = $('camHint'); h.classList.add('show'); clearTimeout(hintT);
+  hintT = setTimeout(() => h.classList.remove('show'), 3200);
+  try { localStorage.setItem('vc-hint', String(+(localStorage.getItem('vc-hint') || 0) + 1)); } catch (e) {}
+}
+async function wake() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) { wakeLock = null; } }
+function releaseWake() { try { wakeLock?.release(); } catch (e) {} wakeLock = null; }
+
+/* chips + dial */
+function buildChips() {
+  $('chips').innerHTML = CHIPS[S.mode].map(k => TOGGLES[k]
+    ? '<button type="button" class="tog" data-k="' + k + '" aria-pressed="' + S[k] + '">' + TOGGLES[k] + '</button>'
+    : '<button type="button" data-k="' + k + '">' + (k === 'fill' ? 'fill' : PARAMS[k].label) + '</button>').join('');
+  syncChips();
+}
+function syncChips() {
+  for (const b of $('chips').children) {
+    const k = b.dataset.k;
+    if (TOGGLES[k]) b.setAttribute('aria-pressed', S[k]); else b.classList.toggle('on', k === active);
+  }
+}
+function select(k) {
+  active = k; syncChips();
+  const isFill = k === 'fill';
+  $('dial').hidden = isFill; $('fillRow').hidden = !isFill;
+  updateDial();
+  const b = $('chips').querySelector('[data-k="' + k + '"]');
+  if (b) b.scrollIntoView({ inline:'center', block:'nearest', behavior:'smooth' });
+}
+function adjustable() { return CHIPS[S.mode].filter(k => !TOGGLES[k]); }
+function updateDial() {
+  if (active === 'fill') { $('dialName').textContent = 'fill'; $('dialNum').textContent = ''; $('dialAuto').hidden = true; return; }
+  const p = PARAMS[active], dial = $('dial'), t = $('dialTicks'), v = S[active];
+  t.style.width = ((p.max - p.min) * p.px + 2) + 'px';
+  t.style.setProperty('--minor', (p.step * p.px) + 'px');
+  t.style.setProperty('--major', (p.step * p.px * 5) + 'px');
+  t.style.transform = 'translateX(' + (dial.clientWidth / 2 - 1 - (v - p.min) * p.px) + 'px)';
+  $('dialName').textContent = p.label;
+  $('dialNum').textContent = p.fmt(v);
+  $('dialAuto').hidden = active !== 'thr';
+  $('dialAuto').setAttribute('aria-pressed', S.auto);
+  dial.setAttribute('aria-label', p.label); dial.setAttribute('aria-valuenow', v);
+  dial.setAttribute('aria-valuemin', p.min); dial.setAttribute('aria-valuemax', p.max);
+}
+let buzzT = 0;
+function buzz() { const now = performance.now(); if (now - buzzT > 40) { buzzT = now; try { navigator.vibrate?.(4); } catch (e) {} } }
+
+$('chips').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const k = b.dataset.k;
+  if (TOGGLES[k]) { setParam(k, !S[k]); buzz(); } else select(k);
+});
+$('fillRow').addEventListener('click', e => { const b = e.target.closest('.csw'); if (b) { setParam('fill', b.dataset.c); buzz(); } });
+$('dialAuto').addEventListener('click', () => setAuto(!S.auto));
+$('camMode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMode(b.dataset.v); });
+$('camViewBtn').addEventListener('click', () => setView({ vector:'overlay', overlay:'photo', photo:'vector' }[S.view]));
+
+/* the ruler: drag it like a lens ring; a flick keeps it turning */
+let dd = null, flingRaf = 0;
+const dial = $('dial');
+dial.addEventListener('pointerdown', e => {
+  if (!PARAMS[active]) return;
+  cancelAnimationFrame(flingRaf);
+  dial.setPointerCapture(e.pointerId);
+  dd = { x:e.clientX, v:S[active], last:e.clientX, t:performance.now(), vel:0 };
+});
+dial.addEventListener('pointermove', e => {
+  if (!dd) return;
+  const now = performance.now(), dt = Math.max(1, now - dd.t);
+  dd.vel = 0.7 * dd.vel + 0.3 * ((e.clientX - dd.last) / dt); dd.last = e.clientX; dd.t = now;
+  dd.f = dd.v - (e.clientX - dd.x) / PARAMS[active].px;
+  if (setParam(active, dd.f)) buzz();
+});
+const dialEnd = () => {
+  if (!dd) return;
+  let vel = dd.vel, f = dd.f ?? S[active]; const k = active; dd = null;
+  if (Math.abs(vel) < 0.25) return;
+  const step = () => {
+    vel *= 0.93; if (Math.abs(vel) < 0.03 || k !== active) return;
+    f -= vel * 16 / PARAMS[k].px; setParam(k, f); flingRaf = requestAnimationFrame(step);
+  };
+  flingRaf = requestAnimationFrame(step);
+};
+dial.addEventListener('pointerup', dialEnd); dial.addEventListener('pointercancel', dialEnd);
+dial.addEventListener('wheel', e => { if (!PARAMS[active]) return; e.preventDefault(); const p = PARAMS[active]; setParam(active, S[active] + Math.sign(e.deltaX || e.deltaY) * p.step); }, { passive:false });
+
+/* the picture itself: ↔ scrubs the active setting, ↕ switches setting,
+   hold shows the photo underneath, tap hides the controls */
+let g = null;
+camView.addEventListener('pointerdown', e => {
+  if (g) return;
+  camView.setPointerCapture(e.pointerId);
+  g = { id:e.pointerId, x:e.clientX, y:e.clientY, v:S[active], mode:null,
+        hold:setTimeout(() => { if (g && !g.mode) { g.mode = 'peek'; peek = true; applyView(); $('camRead').textContent = 'photo'; buzz(); } }, 300) };
+});
+camView.addEventListener('pointermove', e => {
+  if (!g || e.pointerId !== g.id) return;
+  const dx = e.clientX - g.x, dy = e.clientY - g.y;
+  if (!g.mode && Math.hypot(dx, dy) > 12) {
+    clearTimeout(g.hold);
+    g.mode = Math.abs(dx) > Math.abs(dy) ? (PARAMS[active] ? 'adjust' : 'none') : 'switch';
+    if (g.mode === 'adjust') { cam.classList.remove('bare'); g.x = e.clientX; g.v = S[active]; }
+  }
+  if (g.mode === 'adjust') {
+    const p = PARAMS[active], span = p.max - p.min;
+    if (setParam(active, g.v + (e.clientX - g.x) / (camView.clientWidth * 0.85) * span)) buzz();
+  }
+});
+const viewEnd = e => {
+  if (!g || e.pointerId !== g.id) return;
+  clearTimeout(g.hold);
+  const dy = e.clientY - g.y;
+  if (g.mode === 'peek') { peek = false; applyView(); run(); }
+  else if (g.mode === 'switch' && Math.abs(dy) > 40) {
+    const list = adjustable(), i = list.indexOf(active);
+    cam.classList.remove('bare');
+    select(list[(i + (dy < 0 ? 1 : -1) + list.length) % list.length]); buzz();
+  } else if (!g.mode && e.type === 'pointerup') cam.classList.toggle('bare');
+  g = null;
+};
+camView.addEventListener('pointerup', viewEnd); camView.addEventListener('pointercancel', viewEnd);
+
+document.addEventListener('keydown', e => {
+  if (!camOpen) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeCam(false); }
+  else if ((e.code === 'Space' || e.key === 'Enter') && live && !e.target.closest?.('button,input')) { e.preventDefault(); capture(); }
+  else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && PARAMS[active]) { e.preventDefault(); setParam(active, S[active] + (e.key === 'ArrowRight' ? 1 : -1) * PARAMS[active].step); }
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); const l = adjustable(), i = l.indexOf(active); select(l[(i + (e.key === 'ArrowUp' ? 1 : -1) + l.length) % l.length]); }
+});
+
+/* ---------- camera stream ---------- */
 async function openStream() {
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = await navigator.mediaDevices.getUserMedia({ audio:false,
@@ -272,16 +506,20 @@ async function openStream() {
 }
 async function startLive() {
   if (!window.isSecureContext) { toast('Live camera needs an https:// address (or localhost).'); return; }
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('This browser doesn’t support live camera. Use Choose image instead.'); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('This browser doesn’t support the live camera. Choose an image instead.'); return; }
+  if (src && src !== vid) lastStill = src;
+  openCam('live');                 // open first, inside the tap, so full screen is allowed
   try {
     if (!stream || !stream.active) await openStream();
   } catch (e) {
-    const msg = e.name === 'NotAllowedError' ? 'Camera access was blocked. Allow it in your browser’s site settings, then try again.'
-      : e.name === 'NotFoundError' ? 'No camera found on this device.' : 'Couldn’t start the camera (' + e.name + ').';
-    toast(msg); return;
+    closeCam(false);
+    toast(e.name === 'NotAllowedError' ? 'Camera access was blocked. Allow it in your browser’s site settings, then try again.'
+      : e.name === 'NotFoundError' ? 'No camera found on this device.' : 'Couldn’t start the camera (' + e.name + ').');
+    return;
   }
-  live = true; fromCamera = true; prevC = null; fpsT = []; src = vid; W = H = 0;
-  setUI('live');
+  if (!camOpen) return;
+  live = true; prevC = null; fpsT = []; src = vid; W = H = 0;
+  cam.dataset.state = 'live'; wake();
   cancelAnimationFrame(raf); raf = requestAnimationFrame(tick);
 }
 function tick(now) {
@@ -306,61 +544,22 @@ function capture() {
   x.drawImage(vid, 0, 0);
   stopLive(false);
   const f = $('flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
-  src = c; W = H = 0; prevC = null;
+  try { navigator.vibrate?.(12); } catch (e) {}
+  src = c; lastStill = c; W = H = 0; prevC = null;
   prep(S.res); run();
-  setUI('captured');
-  if (!$('code').hidden) $('code').value = lastSvg;
+  cam.dataset.state = 'review'; fitStage();
 }
 $('startBtn').addEventListener('click', startLive);
 $('shutter').addEventListener('click', capture);
-$('retakeBtn').addEventListener('click', startLive);
-$('stopBtn').addEventListener('click', () => { stopLive(true); backToIdle(); });
-function backToIdle() { setUI('idle'); if (src === vid) { src = sample(); W = H = 0; prep(S.res); run(); $('chip').hidden = false; $('chip').textContent = 'sample photo'; } }
+$('camRetake').addEventListener('click', startLive);
 $('flipBtn').addEventListener('click', async () => {
   facing = facing === 'environment' ? 'user' : 'environment';
   try { await openStream(); W = H = 0; } catch (e) { toast('Couldn’t switch cameras on this device.'); }
 });
-document.addEventListener('keydown', e => { if (live && (e.code === 'Space' || e.code === 'Enter') && e.target === document.body) { e.preventDefault(); capture(); } });
-document.addEventListener('visibilitychange', () => { if (document.hidden && live) { stopLive(true); setUI('idle'); toast('Camera paused while the app was in the background.'); } });
-
-/* ---------- controls ---------- */
-function seg(id, key, after) {
-  $(id).addEventListener('click', e => {
-    const b = e.target.closest('button'); if (!b) return;
-    for (const x of $(id).children) x.setAttribute('aria-pressed', x === b);
-    S[key] = isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v; after();
-  });
-}
-seg('modeSeg', 'mode', () => { $('shapesGroup').hidden = S.mode !== 'shapes'; $('colorGroup').hidden = S.mode !== 'color'; prevC = null; schedule(); });
-seg('viewSeg', 'view', applyView);
-seg('resSeg', 'res', () => { if (!live && src) { W = H = 0; prep(S.res); schedule(); } });
-
-function slider(id, key, fmt) {
-  const el = $(id), show = () => { const v = $(id + 'Val'); if (v) v.textContent = fmt(S[key]); };
-  el.addEventListener('input', () => {
-    S[key] = +el.value; show();
-    if (key === 'thr') { S.auto = false; $('autoBtn').setAttribute('aria-pressed', 'false'); }
-    if (key === 'ncol') prevC = null;
-    schedule();
-  });
-  show();
-}
-slider('thr', 'thr', v => v);
-slider('ncol', 'ncol', v => v);
-slider('detail', 'detail', v => v + ' / 10');
-slider('smooth', 'smooth', v => v === 0 ? 'off' : v);
-slider('speck', 'speck', v => v === 0 ? 'off' : '< ' + v + ' px²');
-$('autoBtn').addEventListener('click', () => { S.auto = !S.auto; $('autoBtn').setAttribute('aria-pressed', S.auto); schedule(); });
-for (const [id, key] of [['invert', 'invert'], ['keepBg', 'keepBg'], ['curves', 'curves'], ['anchors', 'anchors']])
-  $(id).addEventListener('change', e => { S[key] = e.target.checked; schedule(); });
-
-function setFill(c, btn) {
-  S.fill = c;
-  for (const s of $('swatches').querySelectorAll('.sw')) s.setAttribute('aria-pressed', s === btn);
-  schedule();
-}
-$('swatches').addEventListener('click', e => { const b = e.target.closest('.sw'); if (b) setFill(b.dataset.c, b); });
-$('customColor').addEventListener('input', e => { e.target.parentElement.style.background = e.target.value; setFill(e.target.value, null); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && live) { resumeLive = true; stopLive(true); releaseWake(); }
+  else if (!document.hidden && resumeLive) { resumeLive = false; if (camOpen) startLive(); }
+});
 
 /* ---------- files ---------- */
 function loadFile(file) {
@@ -370,44 +569,57 @@ function loadFile(file) {
   reader.onload = () => { img.src = reader.result; };
   reader.onerror = () => toast('Couldn’t read that file.');
   img.onload = () => {
-    stopLive(true); setUI('idle');
-    src = img; W = H = 0; prevC = null; $('chip').hidden = true;
-    S.auto = true; $('autoBtn').setAttribute('aria-pressed', 'true');
+    stopLive(true);
+    src = img; lastStill = img; W = H = 0; prevC = null; $('chip').hidden = true;
+    S.auto = true; syncInline();
     prep(S.res); run();
+    if (camOpen || coarse) openCam('review');
   };
   img.onerror = () => toast('This browser can’t open that image format. Try a JPG or PNG.');
   reader.readAsDataURL(file);
 }
 $('fileIn').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
 const mat = $('mat');
-mat.addEventListener('dragover', e => { e.preventDefault(); $('stage').classList.add('drop'); });
-mat.addEventListener('dragleave', () => $('stage').classList.remove('drop'));
-mat.addEventListener('drop', e => { e.preventDefault(); $('stage').classList.remove('drop'); loadFile(e.dataTransfer.files[0]); });
+mat.addEventListener('dragover', e => { e.preventDefault(); stage.classList.add('drop'); });
+mat.addEventListener('dragleave', () => stage.classList.remove('drop'));
+mat.addEventListener('drop', e => { e.preventDefault(); stage.classList.remove('drop'); loadFile(e.dataTransfer.files[0]); });
 window.addEventListener('paste', e => { const it = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/')); if (it) loadFile(it.getAsFile()); });
 
 /* ---------- export ---------- */
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); }
 function currentSvg() { if (live) capture(); return lastSvg; }
 function stamp() { const d = new Date(), p = v => String(v).padStart(2, '0'); return d.getFullYear() + p(d.getMonth()+1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()); }
-function download() {
-  const svg = currentSvg();
+function download(svg, name) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([svg], { type:'image/svg+xml' }));
-  a.download = 'ency-vectorcam-' + stamp() + '.svg';
+  a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   toast('SVG saved');
 }
-$('dlBtn').addEventListener('click', download);
-$('dlBtn2').addEventListener('click', download);
-function showCode(open) { const c = $('code'); c.hidden = !open; $('codeBtn').textContent = open ? 'hide code' : 'show code'; $('codeBtn').setAttribute('aria-expanded', open); if (open) c.value = lastSvg; }
-$('codeBtn').addEventListener('click', () => showCode($('code').hidden));
-$('copyBtn').addEventListener('click', () => {
+// phones get the share sheet (Save to Files, AirDrop, Drive…); everything else downloads
+async function save() {
+  const svg = currentSvg(), name = 'ency-vectorcam-' + stamp() + '.svg';
+  if (coarse && navigator.canShare) {
+    try {
+      const file = new File([svg], name, { type:'image/svg+xml' });
+      if (navigator.canShare({ files:[file] })) { await navigator.share({ files:[file] }); return; }
+    } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  download(svg, name);
+}
+function copySvg() {
   const svg = currentSvg();
-  const fallback = () => { showCode(true); const c = $('code'); c.focus(); c.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) {} toast(ok ? 'SVG copied' : 'Code selected. Copy it from the box below.'); };
+  const fallback = () => { if (camOpen) { toast('Copy isn’t available here. Use save instead.'); return; } showCode(true); const c = $('code'); c.focus(); c.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) {} toast(ok ? 'SVG copied' : 'Code selected. Copy it from the box below.'); };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(svg).then(() => toast('SVG copied'), fallback);
   else fallback();
-});
+}
+$('dlBtn').addEventListener('click', save);
+$('camSave').addEventListener('click', save);
+$('copyBtn').addEventListener('click', copySvg);
+$('camCopy').addEventListener('click', copySvg);
+function showCode(open) { const c = $('code'); c.hidden = !open; $('codeBtn').textContent = open ? 'hide code' : 'show code'; $('codeBtn').setAttribute('aria-expanded', open); if (open) c.value = lastSvg; }
+$('codeBtn').addEventListener('click', () => showCode($('code').hidden));
 
 /* ---------- sample photo shown before the camera starts ---------- */
 function sample() {
@@ -424,8 +636,8 @@ function sample() {
   const im = x.getImageData(0, 0, 900, 640), d = im.data;
   for (let i = 0; i < d.length; i += 4) { const nz = (Math.random() - 0.5) * 26; d[i] += nz; d[i+1] += nz; d[i+2] += nz; }
   x.putImageData(im, 0, 0);
+  c.isSample = true;
   return c;
 }
-src = sample(); prep(S.res); run();
-setUI('idle'); $('chip').hidden = false; $('chip').textContent = 'sample photo';
-
+src = sample(); prep(S.res); syncInline(); run();
+$('chip').hidden = false;
