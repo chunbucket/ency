@@ -44,7 +44,7 @@ export function createGate() {
       ribbon.setPace(2);               // and blurred anyway — half rate is invisible
     }
     // starts as just you; the stream corrects the count on connect
-    lobby = createLobby({ count: 1, reduced });
+    lobby = createLobby({ count: 1, reduced, onExit: () => exitLobby() });
     if (demoted) lobby.root.style.visibility = 'hidden';   // a room is already open
     return lobby;
   }
