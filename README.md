@@ -26,6 +26,7 @@ js/
   pages/gate.js   entry: the gate, which hosts the rooms
   pages/room.js   entry: a room loaded directly, with its own backdrop
   pages/vectorcam.js  entry: Vector Cam's camera, controls and plumbing
+  pages/vectorcam-sw.js  Vector Cam offline service worker (served at /tools/vectorcam-sw.js)
   pages/vectorcam-worker.js  Vector Cam's tracer, in a worker: sub-pixel
                   contours, Bézier fitting, lighting, denoise, page flatten
   gate.js         the gate — join flow, lobby, lock; returns the shell

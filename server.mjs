@@ -352,6 +352,24 @@ const server = http.createServer(async (req, res) => {
     if (p === '/tools/vectorcam')
       return servePage(res, 'vectorcam.html', { head: head('/tools/vectorcam') });
 
+    // Vector Cam as an installable app: its manifest, and an offline service
+    // worker served from /tools/ so it may take the /tools/vectorcam scope
+    if (p === '/tools/vectorcam.webmanifest') {
+      res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end(JSON.stringify({
+        name: 'Vector Cam', short_name: 'Vector Cam',
+        description: 'Point your camera at anything and get a clean SVG.',
+        id: '/tools/vectorcam', start_url: '/tools/vectorcam', scope: '/tools/vectorcam',
+        display: 'standalone', orientation: 'any',
+        background_color: '#000000', theme_color: '#000000',
+        icons: [
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+        ],
+      }));
+    }
+    if (p === '/tools/vectorcam-sw.js') return serveFile(res, 'js/pages/vectorcam-sw.js', req);
+
     if (p === '/music' || p === '/music.html')
       return servePage(res, 'music.html', { head: head('/music'), music: renderSections(MUSIC_SECTIONS) });
 
