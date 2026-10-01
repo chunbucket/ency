@@ -16,9 +16,15 @@
 import { mountChrome } from '../chrome.js';
 mountChrome('tools');
 
-// any failure shows on screen, so a phone without dev tools can still report it
-window.addEventListener('error', e => toast('Error: ' + (e.message || 'unknown')));
-window.addEventListener('unhandledrejection', e => toast('Error: ' + ((e.reason && (e.reason.message || e.reason.name)) || 'unknown')));
+// any failure stays on screen with its line number, so a phone without dev
+// tools can still report exactly what broke
+function fatal(msg) {
+  let b = document.getElementById('vcErr');
+  if (!b) { b = document.createElement('pre'); b.id = 'vcErr'; b.className = 'vc-err'; b.addEventListener('click', () => b.remove()); document.body.appendChild(b); b.textContent = 'vector cam hit an error (tap to dismiss):\n'; }
+  b.textContent += msg + '\n';
+}
+window.addEventListener('error', e => fatal((e.message || 'unknown') + '  @' + String(e.filename || '').split('/').pop() + ':' + e.lineno + ':' + e.colno));
+window.addEventListener('unhandledrejection', e => fatal('async: ' + ((e.reason && (e.reason.message || e.reason.name)) || 'unknown')));
 
 const $ = id => document.getElementById(id);
 const S = { mode:'shapes', view:'vector', thr:128, auto:true, invert:false, fill:'#111111',
@@ -532,7 +538,7 @@ async function startLive() {
       : e.name === 'NotFoundError' ? 'No camera found on this device.' : 'Couldn’t start the camera (' + e.name + ').');
     return;
   }
-  if (!camOpen) return;
+  if (!camOpen) { stopLive(true); return; }   // closed while the camera was still opening: let it go
   live = true; prevC = null; fpsT = []; src = vid; W = H = 0; frames = 0;
   cam.dataset.state = 'live'; wake();
   cancelAnimationFrame(raf); raf = requestAnimationFrame(tick);
@@ -662,5 +668,8 @@ function sample() {
   c.isSample = true;
   return c;
 }
-src = sample(); prep(S.res); syncInline(); run();
-$('chip').hidden = false;
+try {
+  src = sample(); prep(S.res); syncInline(); run();
+  $('chip').hidden = false;
+  document.documentElement.dataset.vc = 'ready';
+} catch (e) { fatal('startup: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n')); }

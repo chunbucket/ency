@@ -215,6 +215,7 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
 .cam.bare .cam-top, .cam.bare .cam-ctl { opacity: 0; pointer-events: none; }
 .cam.bare .cam-top > * { pointer-events: none; }
 .toast { z-index: 80; }
+.vc-err { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 90; margin: 0; padding: 12px; border-radius: 10px; background: #3a1c1c; color: #f2c0c0; border: 1px solid #7a3a3a; font: 11px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow: auto; }
 .vsrc { position: fixed; left: 0; top: 0; width: 2px; height: 2px; opacity: 0.01; pointer-events: none; z-index: -1; }
 .chips { touch-action: pan-x; }
 .cam-wait { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 1; color: #a8a8a8; font-size: 11px; letter-spacing: .14em; text-align: center; max-width: 80vw; line-height: 1.7; }
@@ -391,6 +392,6 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
 </div>
 <div class="toast" id="toast" role="status"></div>
 
-<script type="module" src="/js/pages/vectorcam.js"></script>
+<script type="module" src="/js/pages/vectorcam.js?v=5"></script>
 </body>
 </html>
