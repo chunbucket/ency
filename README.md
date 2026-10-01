@@ -25,7 +25,9 @@ styles/site.css   one stylesheet; <html class="gate|page"> settles the rest
 js/
   pages/gate.js   entry: the gate, which hosts the rooms
   pages/room.js   entry: a room loaded directly, with its own backdrop
-  pages/vectorcam.js  entry: Vector Cam's tracer and camera
+  pages/vectorcam.js  entry: Vector Cam's camera, controls and plumbing
+  pages/vectorcam-worker.js  Vector Cam's tracer, in a worker: sub-pixel
+                  contours, Bézier fitting, lighting, denoise, page flatten
   gate.js         the gate — join flow, lobby, lock; returns the shell
   router.js       soft routing; never touches anything outside <main>
   chrome.js       the corner nav and the links row

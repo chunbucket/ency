@@ -1,10 +1,9 @@
 /* Vector Cam — /tools/vectorcam.
  *
- * Live camera in, SVG out, all on the device. Each frame is traced along pixel
- * edges into loops, smoothed, simplified (Douglas-Peucker) and fitted with
- * Catmull-Rom curves; Color mode posterizes with k-means and stacks the layers
- * light to dark so they never leave gaps. The shutter re-traces the frozen
- * frame at full resolution.
+ * Camera or image in, SVG out, all on the device. The tracing itself lives in
+ * vectorcam-worker.js (sub-pixel contours, Bézier fitting with corners,
+ * adaptive lighting, denoise, perspective flatten, OKLab colour); this file is
+ * the camera, the controls, and the plumbing between them.
  *
  * Two surfaces drive one settings object (S): the desktop dial card, and a
  * full-screen camera layer built for phones, where a drag across the picture
@@ -27,239 +26,124 @@ window.addEventListener('error', e => fatal((e.message || 'unknown') + '  @' + S
 window.addEventListener('unhandledrejection', e => fatal('async: ' + ((e.reason && (e.reason.message || e.reason.name)) || 'unknown')));
 
 const $ = id => document.getElementById(id);
-const S = { mode:'shapes', view:'vector', thr:128, auto:true, invert:false, fill:'#111111',
-  ncol:5, keepBg:true, detail:7, smooth:2, speck:20, curves:true, anchors:false, res:900 };
+
+/* ---------- settings ---------- */
+const S = { mode:'shapes', view:'vector', thr:128, auto:true, invert:false, adaptive:true, fill:'#111111',
+  ncol:5, keepBg:true, detail:7, smooth:2, corner:5, speck:20, denoise:3, flatten:false, curves:true, anchors:false, res:2000 };
+const RES = [1200, 2000, 2800];
 // settings survive a reload and every switch between controls: one object,
 // written to this browser's storage on each change
-const SAVED = ['mode', 'view', 'thr', 'auto', 'invert', 'fill', 'ncol', 'keepBg', 'detail', 'smooth', 'speck', 'curves', 'anchors', 'res'];
+const SAVED = Object.keys(S);
 try { const o = JSON.parse(localStorage.getItem('vc-settings') || '{}'); for (const k of SAVED) if (k in o && typeof o[k] === typeof S[k]) S[k] = o[k]; } catch (e) {}
+if (!RES.includes(S.res)) S.res = 2000;
 let saveT = 0;
 function persist() { clearTimeout(saveT); saveT = setTimeout(() => { try { const o = {}; for (const k of SAVED) o[k] = S[k]; localStorage.setItem('vc-settings', JSON.stringify(o)); } catch (e) {} }, 250); }
-const LIVE_RES = 420;      // trace size while the viewfinder is running
-const REF = 900;           // slider values are tuned for this size; other sizes scale to match
+const traceSettings = () => { const o = {}; for (const k of SAVED) o[k] = S[k]; return o; };
 
-let src = null, W = 0, H = 0, rgb = null, lum = null, autoThr = 128, lastSvg = '', prevC = null;
-let live = false, stream = null, facing = 'environment', raf = 0, lastTick = 0, gap = 50, fpsT = [];
-const photo = $('photo'), pctx = photo.getContext('2d', { willReadFrequently:true }), vid = $('vid');
+const LIVE_RES = 420;      // frame size traced while the viewfinder runs
+const coarse = matchMedia('(pointer: coarse)').matches;
 
-const dims = s => [s.videoWidth || s.naturalWidth || s.width, s.videoHeight || s.naturalHeight || s.height];
+let W = 0, H = 0, lastSvg = '', lastQuad = null, manualQuad = null;
+let live = false, stream = null, facing = 'environment', raf = 0, fpsT = [], frames = 0, capturing = false;
+let still = null, stillIsSample = false;
+const photo = $('photo'), pctx = photo.getContext('2d'), vid = $('vid'), stage = $('stage');
+const fc = document.createElement('canvas'), fctx = fc.getContext('2d', { willReadFrequently:true });
 
-/* ---------- image prep ---------- */
-function prep(maxDim) {
-  const [sw, sh] = dims(src);
-  const k = Math.min(1, maxDim / Math.max(sw, sh));
-  const nw = Math.max(8, Math.round(sw * k)), nh = Math.max(8, Math.round(sh * k));
-  const resized = nw !== W || nh !== H;
-  W = nw; H = nh;
-  if (resized) { photo.width = W; photo.height = H; }
-  pctx.save();
-  if (src === vid && facing === 'user') { pctx.translate(W, 0); pctx.scale(-1, 1); }
-  pctx.drawImage(src, 0, 0, W, H);
-  pctx.restore();
-  const d = pctx.getImageData(0, 0, W, H).data;
-  const n = W * H, r = new Float32Array(n), g = new Float32Array(n), b = new Float32Array(n);
-  for (let i = 0; i < n; i++) { const a = d[i*4+3] / 255; r[i] = d[i*4]*a + 255*(1-a); g[i] = d[i*4+1]*a + 255*(1-a); b[i] = d[i*4+2]*a + 255*(1-a); }
-  rgb = [blur(r), blur(g), blur(b)];
-  lum = new Float32Array(n);
-  for (let i = 0; i < n; i++) lum[i] = 0.2126*rgb[0][i] + 0.7152*rgb[1][i] + 0.0722*rgb[2][i];
-  autoThr = otsu(lum);
-  if (resized) layoutStage(sw, sh);
+/* ---------- the tracer, off the main thread ---------- */
+const worker = new Worker('/js/pages/vectorcam-worker.js?v=6');
+let busy = false, queued = null, jobSeq = 0;
+worker.onerror = e => { busy = false; fatal('tracer: ' + (e.message || 'could not load')); };
+worker.onmessage = e => {
+  busy = false;
+  const r = e.data;
+  if (r.error) fatal('tracer: ' + r.error); else show(r);
+  pump();
+};
+function post(msg, transfer) { busy = true; worker.postMessage(msg, transfer || []); }
+function pump() { if (busy || !queued) return; const q = queued; queued = null; q(); }
+
+function dims(src) { return [src.videoWidth || src.naturalWidth || src.width, src.videoHeight || src.naturalHeight || src.height]; }
+
+// hand the still image to the worker once; re-traces then only send settings
+function sendStill() {
+  if (!still) return;
+  const [sw, sh] = dims(still), k = Math.min(1, S.res / Math.max(sw, sh));
+  const w = Math.max(8, Math.round(sw * k)), h = Math.max(8, Math.round(sh * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d', { willReadFrequently:true });
+  x.fillStyle = '#fff'; x.fillRect(0, 0, w, h);
+  x.drawImage(still, 0, 0, w, h);
+  const im = x.getImageData(0, 0, w, h);
+  worker.postMessage({ type:'still', w, h, buf:im.data.buffer }, [im.data.buffer]);
 }
-function layoutStage(sw, sh) {
-  const st = $('stage');
-  st.style.aspectRatio = W + ' / ' + H;
-  st.style.setProperty('--ar', (W / H).toFixed(4));
-  const rx = $('rulerX').children, ry = $('rulerY').children;
-  rx[1].textContent = Math.round(sw / 2); rx[2].textContent = sw + ' px';
-  ry[1].textContent = sh + ' px';
-  fitStage();
+let traceT = 0;
+function requestTrace() {
+  if (live || !still) return;
+  clearTimeout(traceT);
+  traceT = setTimeout(() => {
+    queued = () => post({ type:'trace', id:++jobSeq, s:traceSettings(), quad:manualQuad });
+    if (camOpen) $('camRead').innerHTML = '<span class="busy-dot"></span>tracing…';
+    pump();
+  }, 30);
 }
-function blur(a) {
-  const o = new Float32Array(a.length), t = new Float32Array(a.length);
-  for (let y = 0; y < H; y++) { const row = y*W; for (let x = 0; x < W; x++) {
-    const i = row + x; let s = a[i], c = 1;
-    if (x > 0) { s += a[i-1]; c++; } if (x < W-1) { s += a[i+1]; c++; } t[i] = s / c; } }
-  for (let y = 0; y < H; y++) { const row = y*W; for (let x = 0; x < W; x++) {
-    const i = row + x; let s = t[i], c = 1;
-    if (y > 0) { s += t[i-W]; c++; } if (y < H-1) { s += t[i+W]; c++; } o[i] = s / c; } }
-  return o;
-}
-function otsu(l) {
-  const h = new Float64Array(256), N = l.length; let sum = 0;
-  for (let i = 0; i < N; i++) h[Math.min(255, l[i] | 0)]++;
-  for (let i = 0; i < 256; i++) sum += i * h[i];
-  let sB = 0, wB = 0, best = -1, t = 128;
-  for (let i = 0; i < 256; i++) {
-    wB += h[i]; if (!wB) continue; const wF = N - wB; if (!wF) break;
-    sB += i * h[i]; const m1 = sB / wB, m2 = (sum - sB) / wF, v = wB * wF * (m1 - m2) ** 2;
-    if (v > best) { best = v; t = i; }
-  }
-  return t;
+function sendFrame() {
+  const vw = vid.videoWidth, vh = vid.videoHeight, k = Math.min(1, LIVE_RES / Math.max(vw, vh));
+  const w = Math.max(8, Math.round(vw * k)), h = Math.max(8, Math.round(vh * k));
+  if (fc.width !== w || fc.height !== h) { fc.width = w; fc.height = h; }
+  fctx.save();
+  if (facing === 'user') { fctx.translate(w, 0); fctx.scale(-1, 1); }
+  fctx.drawImage(vid, 0, 0, w, h);
+  fctx.restore();
+  const im = fctx.getImageData(0, 0, w, h);
+  post({ type:'frame', id:++jobSeq, w, h, buf:im.data.buffer, s:traceSettings() }, [im.data.buffer]);
 }
 
-/* ---------- tracing: pixel-edge contours → smoothed, simplified loops ---------- */
-function traceMask(m) {
-  const VW = W + 1, V = VW * (H + 1);
-  const oA = new Int8Array(V).fill(-1), oB = new Int8Array(V).fill(-1);
-  const add = (v, d) => { if (oA[v] < 0) oA[v] = d; else oB[v] = d; };
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = y*W + x; if (!m[i]) continue;
-    if (y === 0 || !m[i-W]) add(y*VW + x, 0);
-    if (x === W-1 || !m[i+1]) add(y*VW + x + 1, 1);
-    if (y === H-1 || !m[i+W]) add((y+1)*VW + x + 1, 2);
-    if (x === 0 || !m[i-1]) add((y+1)*VW + x, 3);
-  }
-  const dv = [1, VW, -1, -VW], loops = [];
-  for (let s = 0; s < V; s++) {
-    while (oA[s] >= 0) {
-      const xs = [], ys = []; let v = s, d = -1, guard = 0;
-      do {
-        let nd;
-        if (oB[v] >= 0) {
-          const pref = d < 0 ? oA[v] : (d + 1) & 3;
-          if (oB[v] === pref) { nd = oB[v]; oB[v] = -1; }
-          else { nd = oA[v]; oA[v] = oB[v]; oB[v] = -1; }
-        } else { nd = oA[v]; oA[v] = -1; }
-        if (nd < 0) break;
-        xs.push(v % VW); ys.push((v / VW) | 0);
-        v += dv[nd]; d = nd;
-      } while (v !== s && ++guard < 4e6);
-      if (xs.length >= 4) loops.push([xs, ys]);
-    }
-  }
-  return loops;
-}
-function area(xs, ys) { let a = 0; for (let i = 0, n = xs.length, j = n-1; i < n; j = i++) a += xs[j]*ys[i] - xs[i]*ys[j]; return Math.abs(a / 2); }
-function smoothLoop(xs, ys, k) {
-  if (!k) return [xs, ys];
-  const n = xs.length, ox = new Array(n), oy = new Array(n), w = 2*k + 1;
-  for (let i = 0; i < n; i++) {
-    let sx = 0, sy = 0;
-    for (let j = -k; j <= k; j++) { const t = (i + j + n) % n; sx += xs[t]; sy += ys[t]; }
-    ox[i] = sx / w; oy[i] = sy / w;
-  }
-  return [ox, oy];
-}
-function simplify(xs, ys, tol) {
-  const n = xs.length; if (n < 5) return xs.map((_, i) => i);
-  let f = 0, md = -1;
-  for (let i = 1; i < n; i++) { const d = (xs[i]-xs[0])**2 + (ys[i]-ys[0])**2; if (d > md) { md = d; f = i; } }
-  const keep = new Uint8Array(n); keep[0] = keep[f] = 1;
-  const t2 = tol * tol, st = [[0, f], [f, n]];
-  while (st.length) {
-    const [a, b] = st.pop(); if (b - a < 2) continue;
-    const bi = b % n, ax = xs[a], ay = ys[a], bx = xs[bi], by = ys[bi], dx = bx-ax, dy = by-ay, L = dx*dx + dy*dy;
-    let mx = -1, mi = -1;
-    for (let i = a + 1; i < b; i++) {
-      let px = xs[i]-ax, py = ys[i]-ay, d;
-      if (L === 0) d = px*px + py*py;
-      else { let t = (px*dx + py*dy) / L; t = t < 0 ? 0 : t > 1 ? 1 : t; const qx = px - t*dx, qy = py - t*dy; d = qx*qx + qy*qy; }
-      if (d > mx) { mx = d; mi = i; }
-    }
-    if (mx > t2) { keep[mi] = 1; st.push([a, mi], [mi, b]); }
-  }
-  const out = []; for (let i = 0; i < n; i++) if (keep[i]) out.push(i);
-  return out;
-}
-const fm = v => String(Math.round(v * 10) / 10);
-function loopsToPath(loops, anchorsOut) {
-  const sc = Math.max(W, H) / REF;                      // keep the look consistent across sizes
-  const tol = Math.max(0.25, (11 - S.detail) * 0.32 * Math.max(sc, 0.5));
-  const minA = Math.max(1, S.speck * sc * sc);
-  const k = S.smooth ? Math.max(1, Math.round(S.smooth * Math.max(sc, 0.5))) : 0;
-  let d = '', nodes = 0;
-  for (const [x0, y0] of loops) {
-    if (area(x0, y0) < minA) continue;
-    const [xs, ys] = smoothLoop(x0, y0, k);
-    const idx = simplify(xs, ys, tol); if (idx.length < 3) continue;
-    const P = idx.map(i => [xs[i], ys[i]]), n = P.length;
-    nodes += n;
-    if (anchorsOut && anchorsOut.length < 6000) for (const p of P) anchorsOut.push(p);
-    d += 'M' + fm(P[0][0]) + ' ' + fm(P[0][1]);
-    if (S.curves && n > 3) {
-      for (let i = 0; i < n; i++) {
-        const p0 = P[(i-1+n)%n], p1 = P[i], p2 = P[(i+1)%n], p3 = P[(i+2)%n];
-        d += 'C' + fm(p1[0] + (p2[0]-p0[0])/6) + ' ' + fm(p1[1] + (p2[1]-p0[1])/6) + ' ' +
-             fm(p2[0] - (p3[0]-p1[0])/6) + ' ' + fm(p2[1] - (p3[1]-p1[1])/6) + ' ' + fm(p2[0]) + ' ' + fm(p2[1]);
-      }
-    } else for (let i = 1; i < n; i++) d += 'L' + fm(P[i][0]) + ' ' + fm(P[i][1]);
-    d += 'Z';
-  }
-  return { d, nodes };
-}
-
-/* ---------- color quantization ---------- */
-function kmeans(k, warm) {
-  const n = W * H, step = Math.max(1, Math.floor(n / (warm ? 12000 : 25000))), sample = [];
-  for (let i = 0; i < n; i += step) sample.push(i);
-  let C;
-  if (warm && prevC && prevC.length === k) C = prevC.map(c => c.slice());
-  else {
-    const sorted = sample.slice().sort((a, b) => lum[a] - lum[b]);
-    C = []; for (let c = 0; c < k; c++) { const i = sorted[Math.floor((c + 0.5) / k * sorted.length)]; C.push([rgb[0][i], rgb[1][i], rgb[2][i]]); }
-  }
-  for (let it = 0, iters = warm ? 3 : 10; it < iters; it++) {
-    const acc = C.map(() => [0, 0, 0, 0]);
-    for (const i of sample) { const c = nearest(C, rgb[0][i], rgb[1][i], rgb[2][i]); const a = acc[c]; a[0] += rgb[0][i]; a[1] += rgb[1][i]; a[2] += rgb[2][i]; a[3]++; }
-    C = C.map((c, j) => acc[j][3] ? [acc[j][0]/acc[j][3], acc[j][1]/acc[j][3], acc[j][2]/acc[j][3]] : c);
-  }
-  prevC = C;
-  return C;
-}
-function nearest(C, r, g, b) { let bi = 0, bd = 1e12; for (let j = 0; j < C.length; j++) { const c = C[j], d = (c[0]-r)**2 + (c[1]-g)**2 + (c[2]-b)**2; if (d < bd) { bd = d; bi = j; } } return bi; }
-const hex = c => '#' + c.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
-
-/* ---------- trace + render ---------- */
-function run() {
-  if (!src) return 0;
-  const t0 = performance.now(), n = W * H, anchors = S.anchors ? [] : null;
-  let body = '', paths = 0, nodes = 0;
-  if (S.mode === 'shapes') {
-    const t = S.auto ? autoThr : S.thr;
-    if (S.auto && S.thr !== t) { S.thr = t; $('thr').value = t; if (camOpen && active === 'thr') updateDial(); }
-    $('thrVal').textContent = t;
-    const m = new Uint8Array(n);
-    for (let i = 0; i < n; i++) m[i] = (lum[i] <= t) !== S.invert ? 1 : 0;
-    const r = loopsToPath(traceMask(m), anchors);
-    if (r.d) { body = '<path fill="' + S.fill + '" fill-rule="evenodd" d="' + r.d + '"/>'; paths = 1; }
-    nodes = r.nodes;
-  } else {
-    const C = kmeans(S.ncol, live);
-    const order = C.map((c, i) => [i, 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]]).sort((a, b) => b[1] - a[1]).map(a => a[0]);
-    const rank = new Uint8Array(C.length); order.forEach((ci, r) => rank[ci] = r);
-    const lab = new Uint8Array(n);
-    for (let i = 0; i < n; i++) lab[i] = rank[nearest(C, rgb[0][i], rgb[1][i], rgb[2][i])];
-    if (S.keepBg) { body += '<rect width="' + W + '" height="' + H + '" fill="' + hex(C[order[0]]) + '"/>'; paths++; }
-    const m = new Uint8Array(n);
-    for (let r = 1; r < C.length; r++) {
-      for (let i = 0; i < n; i++) m[i] = lab[i] >= r ? 1 : 0;
-      const res = loopsToPath(traceMask(m), anchors);
-      if (res.d) { body += '<path fill="' + hex(C[order[r]]) + '" fill-rule="evenodd" d="' + res.d + '"/>'; paths++; nodes += res.nodes; }
-    }
-  }
-  lastSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '">' + body + '</svg>';
+/* ---------- showing a result ---------- */
+function show(r) {
+  if (r.kind === 'frame' && !live) return;    // a live frame that finished after the shutter
+  if (r.kind === 'trace' && live) return;
+  if (cam.dataset.state === 'crop') return;
+  const resized = r.W !== W || r.H !== H;
+  W = r.W; H = r.H;
+  if (resized) { photo.width = W; photo.height = H; layoutStage(); }
+  if (r.preview) pctx.putImageData(new ImageData(r.preview, W, H), 0, 0);
+  else if (r.kind === 'frame') pctx.drawImage(fc, 0, 0, W, H);
+  else if (still) { pctx.fillStyle = '#fff'; pctx.fillRect(0, 0, W, H); pctx.drawImage(still, 0, 0, W, H); }
+  lastQuad = r.quad || null;
+  if (S.auto && S.mode === 'shapes' && S.thr !== r.autoThr) { S.thr = r.autoThr; $('thr').value = S.thr; $('thrVal').textContent = S.thr; if (camOpen && active === 'thr') updateDial(); }
+  lastSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '">' + r.body + '</svg>';
   const out = $('out');
   out.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   let anchorSvg = '';
-  if (anchors && anchors.length) {
-    const rr = Math.max(W, H) / 260;
-    anchorSvg = '<g fill="#e8e8e8" stroke="#000" stroke-width="' + fm(rr/3) + '">' + anchors.map(p => '<circle cx="' + fm(p[0]) + '" cy="' + fm(p[1]) + '" r="' + fm(rr) + '"/>').join('') + '</g>';
+  if (r.anchors && r.anchors.length) {
+    const rr = Math.max(W, H) / 260, a = r.anchors;
+    let g = '';
+    for (let i = 0; i < a.length; i += 2) g += '<circle cx="' + fm(a[i]) + '" cy="' + fm(a[i + 1]) + '" r="' + fm(rr) + '"/>';
+    anchorSvg = '<g fill="#e8e8e8" stroke="#000" stroke-width="' + fm(rr / 3) + '">' + g + '</g>';
   }
-  out.innerHTML = body + anchorSvg;
+  out.innerHTML = r.body + anchorSvg;
   if (!$('code').hidden && !live) $('code').value = lastSvg;
-  const ms = performance.now() - t0;
+
   let fps = 0;
-  if (live) { const now = performance.now(); fpsT.push(now); while (fpsT.length && now - fpsT[0] > 1000) fpsT.shift(); fps = fpsT.length; }
-  const kb = new Blob([lastSvg]).size / 1024, pl = paths + ' ' + (paths === 1 ? 'path' : 'paths');
+  if (live) { const now = performance.now(); fpsT.push(now); while (fpsT.length && now - fpsT[0] > 1000) fpsT.shift(); fps = fpsT.length; if (!frames++) $('camWait').hidden = true; }
+  const kb = lastSvg.length / 1024, pl = r.paths + ' ' + (r.paths === 1 ? 'path' : 'paths');
   $('readout').innerHTML = (live ? '<span>live preview <b>' + W + ' × ' + H + '</b></span>' : '<span><b>' + W + ' × ' + H + '</b> px traced</span>') +
-    '<span><b>' + paths + '</b> ' + (paths === 1 ? 'path' : 'paths') + '</span><span><b>' + nodes.toLocaleString() + '</b> nodes</span>' +
-    (live ? '' : '<span><b>' + kb.toFixed(1) + '</b> KB</span>') + '<span>' + Math.round(ms) + ' ms</span>' + (live ? '<span><b>' + fps + '</b> fps</span>' : '');
-  if (camOpen && !peek) $('camRead').textContent = (live ? 'live · ' : W + '×' + H + ' · ') + pl + ' · ' + nodes.toLocaleString() + ' nodes' + (live ? ' · ' + fps + ' fps' : ' · ' + kb.toFixed(1) + ' KB');
+    '<span><b>' + r.paths + '</b> ' + (r.paths === 1 ? 'path' : 'paths') + '</span><span><b>' + r.nodes.toLocaleString() + '</b> nodes</span>' +
+    (live ? '' : '<span><b>' + kb.toFixed(1) + '</b> KB</span>') + '<span>' + Math.round(r.ms) + ' ms</span>' + (live ? '<span><b>' + fps + '</b> fps</span>' : '') +
+    (r.quad ? '<span>page flattened</span>' : '');
+  if (camOpen && !peek) $('camRead').textContent = (live ? 'live · ' : W + '×' + H + ' · ') + pl + ' · ' + r.nodes.toLocaleString() + ' nodes' + (live ? ' · ' + fps + ' fps' : ' · ' + kb.toFixed(1) + ' KB') + (r.quad ? ' · flat' : '');
   applyView();
-  return ms;
 }
-let timer = 0;
-function schedule() { if (live) return; clearTimeout(timer); timer = setTimeout(run, 30); }   // the live loop picks changes up on its own
+const fm = v => String(Math.round(v * 10) / 10);
+
+function layoutStage() {
+  stage.style.aspectRatio = W + ' / ' + H;
+  stage.style.setProperty('--ar', (W / H).toFixed(4));
+  const rx = $('rulerX').children, ry = $('rulerY').children;
+  rx[1].textContent = Math.round(W / 2); rx[2].textContent = W + ' px';
+  ry[1].textContent = H + ' px';
+  fitStage();
+}
 
 let peek = false;
 function applyView() {
@@ -267,24 +151,26 @@ function applyView() {
   photo.hidden = v === 'vector';
   out.style.display = v === 'photo' ? 'none' : 'block';
   out.style.opacity = v === 'overlay' ? '0.75' : '1';
-  // dark shapes on a dark viewfinder vanish: back them with paper. Preview only;
-  // the exported SVG stays transparent.
+  // dark shapes on a dark viewfinder vanish: back them with paper. Preview
+  // only; the exported SVG stays transparent.
   const c = S.fill.replace('#', ''), fl = parseInt(c.slice(0, 2), 16) * .3 + parseInt(c.slice(2, 4), 16) * .59 + parseInt(c.slice(4, 6), 16) * .11;
-  $('stage').style.background = v === 'vector' && (S.mode === 'shapes' ? fl < 110 : !S.keepBg) ? '#d4d4d4' : 'transparent';
+  stage.style.background = v === 'vector' && (S.mode === 'shapes' ? fl < 110 : !S.keepBg) ? '#d4d4d4' : 'transparent';
 }
 
-/* ---------- settings: one setter for every control surface ---------- */
+/* ---------- one setter for every control surface ---------- */
 const PARAMS = {
-  thr:    { label:'threshold', min:1, max:254, step:1, px:5,  fmt: v => v },
-  ncol:   { label:'colors',    min:2, max:10,  step:1, px:40, fmt: v => v },
-  detail: { label:'detail',    min:1, max:10,  step:1, px:40, fmt: v => v + ' / 10' },
-  smooth: { label:'smoothing', min:0, max:6,   step:1, px:48, fmt: v => v ? v : 'off' },
-  speck:  { label:'specks',    min:0, max:300, step:5, px:2,  fmt: v => v ? '< ' + v + ' px²' : 'off' },
+  thr:     { label:'threshold', min:1, max:254, step:1, px:5,  fmt: v => v },
+  ncol:    { label:'colors',    min:2, max:10,  step:1, px:40, fmt: v => v },
+  detail:  { label:'detail',    min:1, max:10,  step:1, px:40, fmt: v => v + ' / 10' },
+  smooth:  { label:'smoothing', min:0, max:6,   step:1, px:48, fmt: v => v ? v : 'off' },
+  corner:  { label:'corners',   min:0, max:10,  step:1, px:40, fmt: v => v ? v + ' / 10' : 'all round' },
+  speck:   { label:'specks',    min:0, max:300, step:5, px:2,  fmt: v => v ? '< ' + v + ' px²' : 'off' },
+  denoise: { label:'denoise',   min:0, max:10,  step:1, px:40, fmt: v => v ? v + ' / 10' : 'off' },
 };
-const TOGGLES = { invert:'invert', keepBg:'background', curves:'curves', anchors:'anchors' };
+const TOGGLES = { adaptive:'even light', invert:'invert', keepBg:'background', flatten:'flatten page', curves:'curves', anchors:'anchors' };
 const CHIPS = {
-  shapes: ['thr', 'fill', 'detail', 'smooth', 'speck', 'invert', 'curves', 'anchors'],
-  color:  ['ncol', 'detail', 'smooth', 'speck', 'keepBg', 'curves', 'anchors'],
+  shapes: ['thr', 'fill', 'detail', 'corner', 'smooth', 'speck', 'denoise', 'adaptive', 'invert', 'flatten', 'curves', 'anchors'],
+  color:  ['ncol', 'detail', 'corner', 'smooth', 'speck', 'denoise', 'keepBg', 'flatten', 'curves', 'anchors'],
 };
 let active = 'thr';
 try { const a = localStorage.getItem('vc-active'); if (a) active = a; } catch (e) {}
@@ -297,26 +183,29 @@ function setParam(k, v) {
   } else if (S[k] === v) return false;
   S[k] = v;
   if (k === 'thr') S.auto = false;
-  if (k === 'ncol') prevC = null;
+  if (k === 'flatten') { manualQuad = null; if (camOpen) buildChips(); }
   syncInline(); if (camOpen) { updateDial(); syncChips(); }
-  schedule();
+  requestTrace();
   return true;
 }
 function setMode(m) {
   if (S.mode === m) return;
-  S.mode = m; prevC = null;
+  S.mode = m;
   if (!CHIPS[m].includes(active)) active = m === 'shapes' ? 'thr' : 'ncol';
   syncInline(); if (camOpen) { buildChips(); select(active); }
-  schedule();
+  requestTrace();
 }
 function setView(v) { S.view = v; syncInline(); $('camViewLbl').textContent = { vector:'vec', overlay:'mix', photo:'img' }[v]; applyView(); }
-function setAuto(on) { S.auto = on; syncInline(); if (camOpen) updateDial(); schedule(); }
+function setAuto(on) { S.auto = on; syncInline(); if (camOpen) updateDial(); requestTrace(); }
+function setRes(v) { S.res = v; syncInline(); if (!live && still) { sendStill(); requestTrace(); } }
 
 /* the desktop dial card mirrors S; it never holds state of its own */
+const SLIDERS = ['thr', 'ncol', 'detail', 'smooth', 'corner', 'speck', 'denoise'];
+const CHECKS = ['invert', 'adaptive', 'keepBg', 'flatten', 'curves', 'anchors'];
 function syncInline() {
   persist();
-  for (const k of ['thr', 'ncol', 'detail', 'smooth', 'speck']) { $(k).value = S[k]; const v = $(k + 'Val'); if (v) v.textContent = k === 'detail' ? S[k] + ' / 10' : PARAMS[k].fmt(S[k]); }
-  for (const k of ['invert', 'keepBg', 'curves', 'anchors']) $(k).checked = S[k];
+  for (const k of SLIDERS) { $(k).value = S[k]; const v = $(k + 'Val'); if (v) v.textContent = PARAMS[k].fmt(S[k]); }
+  for (const k of CHECKS) $(k).checked = S[k];
   $('autoBtn').setAttribute('aria-pressed', S.auto);
   for (const [id, key] of [['modeSeg', 'mode'], ['viewSeg', 'view'], ['resSeg', 'res']])
     for (const b of $(id).children) b.setAttribute('aria-pressed', String(b.dataset.v) === String(S[key]));
@@ -326,26 +215,26 @@ function syncInline() {
   for (const sw of $('fillRow').querySelectorAll('.csw')) sw.setAttribute('aria-pressed', sw.dataset.c.toLowerCase() === S.fill.toLowerCase());
 }
 
-/* ---------- desktop dial card ---------- */
 function seg(id, fn) { $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (b) fn(b.dataset.v); }); }
 seg('modeSeg', setMode);
 seg('viewSeg', setView);
-seg('resSeg', v => { S.res = +v; syncInline(); if (!live && src) { W = H = 0; prep(S.res); schedule(); } });
-for (const k of ['thr', 'ncol', 'detail', 'smooth', 'speck']) $(k).addEventListener('input', e => setParam(k, +e.target.value));
+seg('resSeg', v => setRes(+v));
+for (const k of SLIDERS) $(k).addEventListener('input', e => setParam(k, +e.target.value));
 $('autoBtn').addEventListener('click', () => setAuto(!S.auto));
-for (const k of ['invert', 'keepBg', 'curves', 'anchors']) $(k).addEventListener('change', e => setParam(k, e.target.checked));
+for (const k of CHECKS) $(k).addEventListener('change', e => setParam(k, e.target.checked));
 $('swatches').addEventListener('click', e => { const b = e.target.closest('.sw'); if (b) setParam('fill', b.dataset.c); });
 $('customColor').addEventListener('input', e => { e.target.parentElement.style.background = e.target.value; setParam('fill', e.target.value); });
 
 /* ---------- the full-screen camera ---------- */
-const coarse = matchMedia('(pointer: coarse)').matches;
-const cam = $('cam'), camView = $('camView'), stage = $('stage');
-let camOpen = false, lastStill = null, wakeLock = null, resumeLive = false;
+const cam = $('cam'), camView = $('camView');
+let camOpen = false, wakeLock = null, resumeLive = false, cropW = 0, cropH = 0;
 
 function fitStage() {
-  if (!camOpen || !W) return;
-  const r = camView.getBoundingClientRect(), s = Math.min(r.width / W, r.height / H);
-  stage.style.width = Math.floor(W * s) + 'px'; stage.style.height = Math.floor(H * s) + 'px';
+  if (!camOpen) return;
+  const w = cam.dataset.state === 'crop' ? cropW : W, h = cam.dataset.state === 'crop' ? cropH : H;
+  if (!w) return;
+  const r = camView.getBoundingClientRect(), s = Math.min(r.width / w, r.height / h);
+  stage.style.width = Math.floor(w * s) + 'px'; stage.style.height = Math.floor(h * s) + 'px';
 }
 new ResizeObserver(() => { fitStage(); if (camOpen) updateDial(); }).observe(camView);
 
@@ -357,15 +246,20 @@ function openCam(state) {
     if (coarse && document.documentElement.requestFullscreen && !document.fullscreenElement)
       document.documentElement.requestFullscreen({ navigationUI:'hide' }).catch(() => {});
     history.pushState({ vc:'cam' }, '');     // the phone's back gesture closes the camera
-    buildChips(); select(active); setView(S.view);
+    setView(S.view);
     showHint();
   }
+  setCamState(state);
+}
+function setCamState(state) {
   cam.dataset.state = state;
   cam.classList.remove('bare');
-  fitStage(); updateDial();
+  buildChips(); select(active);
+  fitStage();
 }
 function closeCam(fromHistory) {
   if (!camOpen) return;
+  if (cam.dataset.state === 'crop') leaveCrop(false);
   const wasLive = live;
   stopLive(true); releaseWake();
   camOpen = false; cam.hidden = true; peek = false; $('camWait').hidden = true;
@@ -373,19 +267,19 @@ function closeCam(fromHistory) {
   $('mat').appendChild(stage); stage.style.width = stage.style.height = '';
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   if (!fromHistory && history.state && history.state.vc) history.back();
-  if (wasLive || src === vid) { src = lastStill || sample(); W = H = 0; prep(S.res); run(); }
-  $('chip').hidden = !(src && src.isSample);
+  if (wasLive || !still) { if (!still) useSample(); else { W = H = 0; sendStill(); requestTrace(); } }
+  $('chip').hidden = !stillIsSample;
 }
 window.addEventListener('popstate', () => { if (camOpen) closeCam(true); });
 $('camClose').addEventListener('click', () => closeCam(false));
-stage.addEventListener('click', () => { if (!camOpen && src) openCam('review'); });
+stage.addEventListener('click', () => { if (!camOpen && still) openCam('review'); });
 
 let hintT = 0;
 function showHint() {
-  let seen = false; try { seen = localStorage.getItem('vc-hint') === '3'; } catch (e) {}
+  let seen = false; try { seen = +(localStorage.getItem('vc-hint') || 0) >= 3; } catch (e) {}
   if (seen) return;
   const h = $('camHint'); h.classList.add('show'); clearTimeout(hintT);
-  hintT = setTimeout(() => h.classList.remove('show'), 3200);
+  hintT = setTimeout(() => h.classList.remove('show'), 3400);
   try { localStorage.setItem('vc-hint', String(+(localStorage.getItem('vc-hint') || 0) + 1)); } catch (e) {}
 }
 async function wake() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) { wakeLock = null; } }
@@ -393,9 +287,15 @@ function releaseWake() { try { wakeLock?.release(); } catch (e) {} wakeLock = nu
 
 /* chips + dial */
 function buildChips() {
-  $('chips').innerHTML = CHIPS[S.mode].map(k => TOGGLES[k]
+  const list = CHIPS[S.mode].map(k => TOGGLES[k]
     ? '<button type="button" class="tog" data-k="' + k + '" aria-pressed="' + S[k] + '">' + TOGGLES[k] + '</button>'
-    : '<button type="button" data-k="' + k + '">' + (k === 'fill' ? 'fill' : PARAMS[k].label) + '</button>').join('');
+    : '<button type="button" data-k="' + k + '">' + (k === 'fill' ? 'fill' : PARAMS[k].label) + '</button>');
+  // with the page being flattened, a captured photo gets a corner editor
+  if (S.flatten && cam.dataset.state === 'review' && still) {
+    const at = CHIPS[S.mode].indexOf('flatten') + 1;
+    list.splice(at, 0, '<button type="button" class="act" data-k="crop">adjust corners</button>');
+  }
+  $('chips').innerHTML = list.join('');
   syncChips();
 }
 function syncChips() {
@@ -417,17 +317,18 @@ function select(k) {
 function adjustable() { return CHIPS[S.mode].filter(k => !TOGGLES[k]); }
 function updateDial() {
   if (active === 'fill') { $('dialName').textContent = 'fill'; $('dialNum').textContent = ''; $('dialAuto').hidden = true; return; }
-  const p = PARAMS[active], dial = $('dial'), t = $('dialTicks'), v = S[active];
+  const p = PARAMS[active], dl = $('dial'), t = $('dialTicks'), v = S[active];
+  if (!p) return;
   t.style.width = ((p.max - p.min) * p.px + 2) + 'px';
   t.style.setProperty('--minor', (p.step * p.px) + 'px');
   t.style.setProperty('--major', (p.step * p.px * 5) + 'px');
-  t.style.transform = 'translateX(' + (dial.clientWidth / 2 - 1 - (v - p.min) * p.px) + 'px)';
+  t.style.transform = 'translateX(' + (dl.clientWidth / 2 - 1 - (v - p.min) * p.px) + 'px)';
   $('dialName').textContent = p.label;
   $('dialNum').textContent = p.fmt(v);
   $('dialAuto').hidden = active !== 'thr';
   $('dialAuto').setAttribute('aria-pressed', S.auto);
-  dial.setAttribute('aria-label', p.label); dial.setAttribute('aria-valuenow', v);
-  dial.setAttribute('aria-valuemin', p.min); dial.setAttribute('aria-valuemax', p.max);
+  dl.setAttribute('aria-label', p.label); dl.setAttribute('aria-valuenow', v);
+  dl.setAttribute('aria-valuemin', p.min); dl.setAttribute('aria-valuemax', p.max);
 }
 let buzzT = 0;
 function buzz() { const now = performance.now(); if (now - buzzT > 40) { buzzT = now; try { navigator.vibrate?.(4); } catch (e) {} } }
@@ -435,7 +336,9 @@ function buzz() { const now = performance.now(); if (now - buzzT > 40) { buzzT =
 $('chips').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const k = b.dataset.k;
-  if (TOGGLES[k]) { setParam(k, !S[k]); buzz(); } else select(k);
+  if (k === 'crop') enterCrop();
+  else if (TOGGLES[k]) { setParam(k, !S[k]); buzz(); }
+  else select(k);
 });
 $('fillRow').addEventListener('click', e => { const b = e.target.closest('.csw'); if (b) { setParam('fill', b.dataset.c); buzz(); } });
 $('dialAuto').addEventListener('click', () => setAuto(!S.auto));
@@ -469,13 +372,13 @@ const dialEnd = () => {
   flingRaf = requestAnimationFrame(step);
 };
 dial.addEventListener('pointerup', dialEnd); dial.addEventListener('pointercancel', dialEnd);
-dial.addEventListener('wheel', e => { if (!PARAMS[active]) return; e.preventDefault(); const p = PARAMS[active]; setParam(active, S[active] + Math.sign(e.deltaX || e.deltaY) * p.step); }, { passive:false });
+dial.addEventListener('wheel', e => { if (!PARAMS[active]) return; e.preventDefault(); setParam(active, S[active] + Math.sign(e.deltaX || e.deltaY) * PARAMS[active].step); }, { passive:false });
 
 /* the picture itself: ↔ scrubs the active setting, ↕ switches setting,
    hold shows the photo underneath, tap hides the controls */
 let g = null;
 camView.addEventListener('pointerdown', e => {
-  if (g) return;
+  if (g || cam.dataset.state === 'crop') return;
   camView.setPointerCapture(e.pointerId);
   g = { id:e.pointerId, x:e.clientX, y:e.clientY, v:S[active], mode:null,
         hold:setTimeout(() => { if (g && !g.mode) { g.mode = 'peek'; peek = true; applyView(); $('camRead').textContent = 'photo'; buzz(); } }, 300) };
@@ -497,7 +400,7 @@ const viewEnd = e => {
   if (!g || e.pointerId !== g.id) return;
   clearTimeout(g.hold);
   const dy = e.clientY - g.y;
-  if (g.mode === 'peek') { peek = false; applyView(); run(); }
+  if (g.mode === 'peek') { peek = false; applyView(); }
   else if (g.mode === 'switch' && Math.abs(dy) > 40) {
     const list = adjustable(), i = list.indexOf(active);
     cam.classList.remove('bare');
@@ -509,17 +412,67 @@ camView.addEventListener('pointerup', viewEnd); camView.addEventListener('pointe
 
 document.addEventListener('keydown', e => {
   if (!camOpen) return;
-  if (e.key === 'Escape') { e.preventDefault(); closeCam(false); }
+  if (e.key === 'Escape') { e.preventDefault(); if (cam.dataset.state === 'crop') leaveCrop(false); else closeCam(false); }
   else if ((e.code === 'Space' || e.key === 'Enter') && live && !e.target.closest?.('button,input')) { e.preventDefault(); capture(); }
   else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && PARAMS[active]) { e.preventDefault(); setParam(active, S[active] + (e.key === 'ArrowRight' ? 1 : -1) * PARAMS[active].step); }
   else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); const l = adjustable(), i = l.indexOf(active); select(l[(i + (e.key === 'ArrowUp' ? 1 : -1) + l.length) % l.length]); }
 });
 
+/* ---------- corner editor for the flattened page ---------- */
+let cropQ = null, cropDrag = -1;
+const cropSvg = $('cropSvg');
+function enterCrop() {
+  if (!still) return;
+  const [sw, sh] = dims(still), k = Math.min(1, 1600 / Math.max(sw, sh));
+  cropW = Math.round(sw * k); cropH = Math.round(sh * k);
+  cam.dataset.state = 'crop';
+  photo.width = cropW; photo.height = cropH;
+  pctx.drawImage(still, 0, 0, cropW, cropH);
+  photo.hidden = false; $('out').style.display = 'none'; stage.style.background = 'transparent';
+  stage.style.aspectRatio = cropW + ' / ' + cropH;
+  cropQ = (manualQuad || lastQuad || [[0.08, 0.08], [0.92, 0.08], [0.92, 0.92], [0.08, 0.92]]).map(p => p.slice());
+  cropSvg.setAttribute('viewBox', '0 0 ' + cropW + ' ' + cropH);
+  cropSvg.removeAttribute('hidden');
+  drawCrop();
+  fitStage();
+}
+function drawCrop() {
+  const P = cropQ.map(p => [p[0] * cropW, p[1] * cropH]), r = Math.max(cropW, cropH) / 38;
+  let s = '<path d="M0 0H' + cropW + 'V' + cropH + 'H0Z M' + P.map(p => fm(p[0]) + ' ' + fm(p[1])).join('L') + 'Z" fill="rgba(0,0,0,.5)" fill-rule="evenodd"/>';
+  s += '<polygon points="' + P.map(p => fm(p[0]) + ',' + fm(p[1])).join(' ') + '" fill="none" stroke="#e8e8e8" stroke-width="' + fm(r / 6) + '"/>';
+  P.forEach((p, i) => {
+    s += '<circle class="h" data-i="' + i + '" cx="' + fm(p[0]) + '" cy="' + fm(p[1]) + '" r="' + fm(r * 1.8) + '" fill="rgba(0,0,0,0)"/>';
+    s += '<circle cx="' + fm(p[0]) + '" cy="' + fm(p[1]) + '" r="' + fm(r * 0.6) + '" fill="#d08a8a" stroke="#fff" stroke-width="' + fm(r / 5) + '" pointer-events="none"/>';
+  });
+  cropSvg.innerHTML = s;
+}
+cropSvg.addEventListener('pointerdown', e => {
+  const h = e.target.closest('.h'); if (!h) return;
+  e.preventDefault(); cropDrag = +h.dataset.i; cropSvg.setPointerCapture(e.pointerId); buzz();
+});
+cropSvg.addEventListener('pointermove', e => {
+  if (cropDrag < 0) return;
+  const r = stage.getBoundingClientRect();
+  cropQ[cropDrag] = [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
+  drawCrop();
+});
+const cropEnd = () => { cropDrag = -1; };
+cropSvg.addEventListener('pointerup', cropEnd); cropSvg.addEventListener('pointercancel', cropEnd);
+function leaveCrop(apply) {
+  cropSvg.setAttribute('hidden', ''); cropSvg.innerHTML = '';
+  if (apply) manualQuad = cropQ.map(p => p.slice());
+  W = H = 0;
+  setCamState('review');
+  requestTrace();
+}
+$('cropDone').addEventListener('click', () => leaveCrop(true));
+$('cropAuto').addEventListener('click', () => { manualQuad = null; leaveCrop(false); });
+
 /* ---------- camera stream ---------- */
 async function openStream() {
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = await navigator.mediaDevices.getUserMedia({ audio:false,
-    video:{ facingMode:{ ideal:facing }, width:{ ideal:1920 }, height:{ ideal:1080 } } });
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:3840 }, height:{ ideal:2160 } } });
   vid.srcObject = stream;
   await vid.play();
   if (!vid.videoWidth) await new Promise(r => vid.addEventListener('loadedmetadata', r, { once:true }));
@@ -527,7 +480,6 @@ async function openStream() {
 async function startLive() {
   if (!window.isSecureContext) { toast('Live camera needs an https:// address (or localhost).'); return; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('This browser doesn’t support the live camera. Choose an image instead.'); return; }
-  if (src && src !== vid) lastStill = src;
   openCam('live');                 // open first, inside the tap, so full screen is allowed
   if (!live) { $('camWait').hidden = false; $('camWait').textContent = 'starting camera…'; }
   try {
@@ -539,44 +491,80 @@ async function startLive() {
     return;
   }
   if (!camOpen) { stopLive(true); return; }   // closed while the camera was still opening: let it go
-  live = true; prevC = null; fpsT = []; src = vid; W = H = 0; frames = 0;
-  cam.dataset.state = 'live'; wake();
+  live = true; fpsT = []; frames = 0; W = H = 0;
+  setCamState('live'); wake();
   cancelAnimationFrame(raf); raf = requestAnimationFrame(tick);
   setTimeout(() => {                 // camera granted but no picture arriving
     if (live && !frames) { $('camWait').textContent = 'the camera opened but no picture is arriving. close and try again, or choose an image.'; vid.play().catch(() => {}); }
-  }, 4000);
+  }, 5000);
 }
-let frames = 0;
-function tick(now) {
+function tick() {
   if (!live) return;
-  if (vid.readyState >= 2 && vid.videoWidth && now - lastTick >= gap) {
-    lastTick = now;
-    try {
-      prep(Math.min(LIVE_RES, S.res));
-      const ms = run();
-      gap = Math.max(33, ms * 1.15);    // never let tracing starve the UI
-      if (!frames++) $('camWait').hidden = true;
-    } catch (e) { stopLive(true); $('camWait').hidden = false; $('camWait').textContent = 'tracing stopped: ' + e.message; return; }
-  }
+  if (!busy && vid.readyState >= 2 && vid.videoWidth) sendFrame();
   raf = requestAnimationFrame(tick);
 }
 function stopLive(release) {
   live = false; cancelAnimationFrame(raf);
   if (release && stream) { stream.getTracks().forEach(t => t.stop()); stream = null; vid.srcObject = null; }
 }
-function capture() {
-  if (!live || !vid.videoWidth) return;
-  $('camWait').hidden = true;
-  const c = document.createElement('canvas'); c.width = vid.videoWidth; c.height = vid.videoHeight;
-  const x = c.getContext('2d');
-  if (facing === 'user') { x.translate(c.width, 0); x.scale(-1, 1); }
-  x.drawImage(vid, 0, 0);
-  stopLive(false);
+
+/* full-resolution still: the camera's own photo where the browser offers it
+   (Android Chrome), otherwise a burst of video frames averaged together,
+   dropping any frame that moved, which cuts sensor noise roughly in half */
+async function grabStill() {
+  const track = stream && stream.getVideoTracks()[0];
+  if (track && 'ImageCapture' in window && facing === 'environment') {
+    try {
+      const blob = await new ImageCapture(track).takePhoto();
+      const bmp = await createImageBitmap(blob);
+      const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+      c.getContext('2d').drawImage(bmp, 0, 0);
+      return c;
+    } catch (e) {}
+  }
+  return burst(4);
+}
+const nextFrame = () => new Promise(r => vid.requestVideoFrameCallback ? vid.requestVideoFrameCallback(() => r()) : setTimeout(r, 40));
+async function burst(n) {
+  const w = vid.videoWidth, h = vid.videoHeight, c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d', { willReadFrequently:true });
+  const grab = () => { x.save(); if (facing === 'user') { x.translate(w, 0); x.scale(-1, 1); } x.drawImage(vid, 0, 0, w, h); x.restore(); return x.getImageData(0, 0, w, h); };
+  const first = grab(), fd = first.data, acc = new Uint16Array(fd.length);
+  for (let i = 0; i < fd.length; i++) acc[i] = fd[i];
+  let count = 1;
+  for (let f = 1; f < n; f++) {
+    await Promise.race([nextFrame(), new Promise(r => setTimeout(r, 120))]);
+    const d = grab().data;
+    let diff = 0, m = 0;
+    for (let i = 0; i < d.length; i += 4 * 997) { diff += Math.abs(d[i + 1] - fd[i + 1]); m++; }
+    if (diff / m > 9) continue;                 // the phone moved: skip this one
+    for (let i = 0; i < d.length; i++) acc[i] += d[i];
+    count++;
+  }
+  if (count > 1) for (let i = 0; i < fd.length; i++) fd[i] = acc[i] / count + 0.5;
+  x.putImageData(first, 0, 0);
+  return c;
+}
+async function capture() {
+  if (!live || capturing || !vid.videoWidth) return;
+  capturing = true;
   const f = $('flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
   try { navigator.vibrate?.(12); } catch (e) {}
-  src = c; lastStill = c; W = H = 0; prevC = null;
-  prep(S.res); run();
-  cam.dataset.state = 'review'; fitStage();
+  live = false; cancelAnimationFrame(raf);
+  $('camWait').hidden = true;
+  $('camRead').innerHTML = '<span class="busy-dot"></span>capturing…';
+  let c = null;
+  try { c = await grabStill(); } catch (e) { c = null; }
+  if (!c) {
+    c = document.createElement('canvas'); c.width = vid.videoWidth; c.height = vid.videoHeight;
+    const x = c.getContext('2d'); if (facing === 'user') { x.translate(c.width, 0); x.scale(-1, 1); } x.drawImage(vid, 0, 0);
+  }
+  still = c; stillIsSample = false; manualQuad = null; W = H = 0;
+  sendStill();
+  setCamState('review');
+  requestTrace();
+  capturing = false;
 }
 $('startBtn').addEventListener('click', startLive);
 $('shutter').addEventListener('click', capture);
@@ -599,10 +587,10 @@ function loadFile(file) {
   reader.onerror = () => toast('Couldn’t read that file.');
   img.onload = () => {
     stopLive(true);
-    src = img; lastStill = img; W = H = 0; prevC = null; $('chip').hidden = true;
+    still = img; stillIsSample = false; manualQuad = null; W = H = 0; $('chip').hidden = true;
     S.auto = true; syncInline();
-    prep(S.res); run();
-    if (camOpen || coarse) openCam('review');
+    sendStill(); requestTrace();
+    if (camOpen) setCamState('review'); else if (coarse) openCam('review');
   };
   img.onerror = () => toast('This browser can’t open that image format. Try a JPG or PNG.');
   reader.readAsDataURL(file);
@@ -616,8 +604,7 @@ window.addEventListener('paste', e => { const it = [...(e.clipboardData?.items |
 
 /* ---------- export ---------- */
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); }
-function currentSvg() { if (live) capture(); return lastSvg; }
-function stamp() { const d = new Date(), p = v => String(v).padStart(2, '0'); return d.getFullYear() + p(d.getMonth()+1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()); }
+function stamp() { const d = new Date(), p = v => String(v).padStart(2, '0'); return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()); }
 function download(svg, name) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([svg], { type:'image/svg+xml' }));
@@ -626,9 +613,15 @@ function download(svg, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   toast('SVG saved');
 }
+function ready() {
+  if (live) { toast('Take the photo first.'); return false; }
+  if (busy || queued) { toast('Still tracing. One moment.'); return false; }
+  return !!lastSvg;
+}
 // phones get the share sheet (Save to Files, AirDrop, Drive…); everything else downloads
 async function save() {
-  const svg = currentSvg(), name = 'ency-vectorcam-' + stamp() + '.svg';
+  if (!ready()) return;
+  const svg = lastSvg, name = 'ency-vectorcam-' + stamp() + '.svg';
   if (coarse && navigator.canShare) {
     try {
       const file = new File([svg], name, { type:'image/svg+xml' });
@@ -638,7 +631,8 @@ async function save() {
   download(svg, name);
 }
 function copySvg() {
-  const svg = currentSvg();
+  if (!ready()) return;
+  const svg = lastSvg;
   const fallback = () => { if (camOpen) { toast('Copy isn’t available here. Use save instead.'); return; } showCode(true); const c = $('code'); c.focus(); c.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) {} toast(ok ? 'SVG copied' : 'Code selected. Copy it from the box below.'); };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(svg).then(() => toast('SVG copied'), fallback);
   else fallback();
@@ -653,7 +647,7 @@ $('codeBtn').addEventListener('click', () => showCode($('code').hidden));
 /* ---------- sample photo shown before the camera starts ---------- */
 function sample() {
   const c = document.createElement('canvas'); c.width = 900; c.height = 640; const x = c.getContext('2d');
-  const g = x.createLinearGradient(0, 0, 900, 640); g.addColorStop(0, '#ece6d8'); g.addColorStop(1, '#d6cfbe'); x.fillStyle = g; x.fillRect(0, 0, 900, 640);
+  const g = x.createLinearGradient(0, 0, 900, 640); g.addColorStop(0, '#ece6d8'); g.addColorStop(1, '#c9c1ae'); x.fillStyle = g; x.fillRect(0, 0, 900, 640);
   x.fillStyle = '#e2672b'; x.beginPath(); x.arc(640, 190, 82, 0, Math.PI * 2); x.fill();
   for (let i = 0; i < 14; i++) { const a = i / 14 * Math.PI * 2; x.save(); x.translate(640, 190); x.rotate(a); x.beginPath(); x.moveTo(100, -9); x.lineTo(150, 0); x.lineTo(100, 9); x.fill(); x.restore(); }
   x.fillStyle = '#3f8a7d'; x.beginPath(); x.moveTo(0, 470); x.lineTo(170, 270); x.lineTo(280, 380); x.lineTo(410, 230); x.lineTo(600, 450); x.lineTo(900, 330); x.lineTo(900, 640); x.lineTo(0, 640); x.fill();
@@ -663,13 +657,15 @@ function sample() {
   x.beginPath(); x.moveTo(90, 120); x.quadraticCurveTo(140, 70, 190, 120); x.quadraticCurveTo(240, 70, 290, 120); x.stroke();
   const v = x.createRadialGradient(450, 320, 200, 450, 320, 620); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(40,30,10,.28)'); x.fillStyle = v; x.fillRect(0, 0, 900, 640);
   const im = x.getImageData(0, 0, 900, 640), d = im.data;
-  for (let i = 0; i < d.length; i += 4) { const nz = (Math.random() - 0.5) * 26; d[i] += nz; d[i+1] += nz; d[i+2] += nz; }
+  for (let i = 0; i < d.length; i += 4) { const nz = (Math.random() - 0.5) * 26; d[i] += nz; d[i + 1] += nz; d[i + 2] += nz; }
   x.putImageData(im, 0, 0);
-  c.isSample = true;
   return c;
 }
+function useSample() { still = sample(); stillIsSample = true; manualQuad = null; W = H = 0; sendStill(); requestTrace(); }
+
 try {
-  src = sample(); prep(S.res); syncInline(); run();
+  syncInline();
+  useSample();
   $('chip').hidden = false;
   document.documentElement.dataset.vc = 'ready';
 } catch (e) { fatal('startup: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n')); }

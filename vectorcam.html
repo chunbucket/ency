@@ -211,7 +211,16 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
   font: 12px/1 var(--mono); letter-spacing: .14em; display: flex; align-items: center; gap: 9px; }
 .savebtn svg { width: 18px; height: 18px; }
 .savebtn:active { transform: scale(.96); }
-.cam[data-state="live"] .review-only, .cam[data-state="review"] .live-only { display: none; }
+.cam[data-state="live"] .review-only, .cam[data-state="review"] .live-only,
+.cam:not([data-state="crop"]) .crop-only, .cam[data-state="crop"] .live-only, .cam[data-state="crop"] .review-only,
+.cam[data-state="crop"] .cam-ctl, .cam[data-state="crop"] .cam-mode { display: none !important; }
+.cam-croptip { position: absolute; left: 50%; bottom: calc(var(--barh) + env(safe-area-inset-bottom, 0px) + 14px); transform: translateX(-50%); z-index: 2;
+  background: rgba(0,0,0,.65); padding: 9px 14px; border-radius: 999px; font-size: 11px; letter-spacing: .08em; white-space: nowrap; pointer-events: none; }
+.ib.txt { font-size: 11px; letter-spacing: .1em; }
+.cropsvg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 3; }
+.cropsvg .h { pointer-events: all; cursor: grab; touch-action: none; }
+.chips button.act { border-style: dashed; color: #fff; }
+.busy-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #d08a8a; margin-right: 6px; vertical-align: 1px; animation: blink .9s infinite; }
 .cam.bare .cam-top, .cam.bare .cam-ctl { opacity: 0; pointer-events: none; }
 .cam.bare .cam-top > * { pointer-events: none; }
 .toast { z-index: 80; }
@@ -224,10 +233,10 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
 @media (orientation: landscape) and (max-height: 560px) {
   .cam-view { right: calc(var(--side) + env(safe-area-inset-right, 0px)); bottom: 0; }
   .cam-top { right: calc(var(--side) + env(safe-area-inset-right, 0px)); }
+  .cam-hint, .cam-wait, .cam-croptip { left: calc((100% - var(--side)) / 2); }
   .cam-ctl { left: auto; width: var(--side); right: env(safe-area-inset-right, 0px); top: 0; bottom: var(--barh);
     background: #000; align-content: end; padding-top: calc(env(safe-area-inset-top, 0px) + 10px); }
   .cam-bar { left: auto; width: calc(var(--side) + env(safe-area-inset-right, 0px)); padding: 0 calc(20px + env(safe-area-inset-right, 0px)) 0 20px; height: var(--barh); }
-  .chips { flex-wrap: wrap; justify-content: center; overflow: visible; }
 }
 @media (prefers-reduced-motion: reduce) { .cam-hint, .cam-top, .cam-ctl { transition: none; } }
 </style>
@@ -245,6 +254,7 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
         <div class="stage" id="stage">
           <canvas id="photo"></canvas>
           <svg id="out" xmlns="http://www.w3.org/2000/svg"></svg>
+          <svg id="cropSvg" class="cropsvg" xmlns="http://www.w3.org/2000/svg" hidden></svg>
           <div class="flash" id="flash"></div>
           <div class="chip" id="chip">sample photo</div>
         </div>
@@ -287,6 +297,7 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
             <span class="row"><span class="val" id="thrVal"></span><button type="button" class="mini" id="autoBtn" aria-pressed="true">auto</button></span></div>
           <input type="range" id="thr" min="1" max="254" value="128">
         </div>
+        <label class="check"><input type="checkbox" id="adaptive" checked> even out lighting</label>
         <label class="check"><input type="checkbox" id="invert"> invert (trace light areas)</label>
         <div class="ctl">
           <span class="label">fill</span>
@@ -318,17 +329,26 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
           <input type="range" id="smooth" min="0" max="6" value="2">
         </div>
         <div class="ctl">
+          <div class="ctl-head"><label for="corner">corners</label><span class="val" id="cornerVal"></span></div>
+          <input type="range" id="corner" min="0" max="10" value="5">
+        </div>
+        <div class="ctl">
+          <div class="ctl-head"><label for="denoise">denoise</label><span class="val" id="denoiseVal"></span></div>
+          <input type="range" id="denoise" min="0" max="10" value="3">
+        </div>
+        <div class="ctl">
           <div class="ctl-head"><label for="speck">remove specks</label><span class="val" id="speckVal"></span></div>
           <input type="range" id="speck" min="0" max="300" step="5" value="20">
         </div>
+        <label class="check"><input type="checkbox" id="flatten"> flatten page (find the paper and square it up)</label>
         <label class="check"><input type="checkbox" id="curves" checked> curved paths</label>
         <label class="check"><input type="checkbox" id="anchors"> show anchor points</label>
         <div class="ctl">
-          <span class="label">capture resolution</span>
+          <span class="label">trace resolution (px)</span>
           <div class="seg" id="resSeg">
-            <button type="button" data-v="480" aria-pressed="false">fast</button>
-            <button type="button" data-v="900" aria-pressed="true">balanced</button>
-            <button type="button" data-v="1600" aria-pressed="false">fine</button>
+            <button type="button" data-v="1200" aria-pressed="false">1200</button>
+            <button type="button" data-v="2000" aria-pressed="true">2000</button>
+            <button type="button" data-v="2800" aria-pressed="false">2800</button>
           </div>
         </div>
       </div>
@@ -362,6 +382,7 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
     </div>
     <button type="button" class="ib" id="camViewBtn" aria-label="Change view"><span id="camViewLbl">vec</span></button>
   </div>
+  <div class="cam-croptip crop-only">drag the corners onto the edges of the page</div>
   <div class="cam-hint" id="camHint">drag ↔ on the picture to adjust<br>swipe ↕ to switch setting<br>hold to see the photo<br>tap to hide controls</div>
   <div class="cam-ctl" id="camCtl">
     <div class="dial-head"><span class="dial-name" id="dialName"></span><b class="dial-num" id="dialNum"></b><button type="button" class="dial-auto" id="dialAuto" aria-pressed="true">auto</button></div>
@@ -378,10 +399,12 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
   <div class="cam-bar">
     <div class="slot l">
       <label class="ib big live-only" for="fileIn" aria-label="Choose image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/></svg></label>
+      <button type="button" class="ib big crop-only txt" id="cropAuto" aria-label="Detect the page again">auto</button>
       <button type="button" class="ib big review-only" id="camRetake" aria-label="Back to camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     </div>
     <div class="slot c">
       <button type="button" class="shutter live-only" id="shutter" aria-label="Capture"></button>
+      <button type="button" class="savebtn crop-only" id="cropDone">done</button>
       <button type="button" class="savebtn review-only" id="camSave"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>save svg</button>
     </div>
     <div class="slot r">
@@ -392,6 +415,6 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
 </div>
 <div class="toast" id="toast" role="status"></div>
 
-<script type="module" src="/js/pages/vectorcam.js?v=5"></script>
+<script type="module" src="/js/pages/vectorcam.js?v=6"></script>
 </body>
 </html>
