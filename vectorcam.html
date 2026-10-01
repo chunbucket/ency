@@ -215,6 +215,9 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
 .cam.bare .cam-top, .cam.bare .cam-ctl { opacity: 0; pointer-events: none; }
 .cam.bare .cam-top > * { pointer-events: none; }
 .toast { z-index: 80; }
+.vsrc { position: fixed; left: 0; top: 0; width: 2px; height: 2px; opacity: 0.01; pointer-events: none; z-index: -1; }
+.chips { touch-action: pan-x; }
+.cam-wait { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 1; color: #a8a8a8; font-size: 11px; letter-spacing: .14em; text-align: center; max-width: 80vw; line-height: 1.7; }
 
 /* phones held sideways: the picture on the left, every control in a column */
 @media (orientation: landscape) and (max-height: 560px) {
@@ -340,10 +343,13 @@ html.cam-open, html.cam-open body { overflow: hidden; height: 100%; overscroll-b
     </aside>
   </div>
 </div>
-<video id="vid" playsinline muted autoplay hidden></video>
+<!-- the camera feed. Kept rendered (just invisible): iOS Safari stops
+     decoding frames for a video that is display:none. -->
+<video id="vid" class="vsrc" playsinline muted autoplay></video>
 
 <div class="cam" id="cam" hidden data-state="live" role="dialog" aria-modal="true" aria-label="Vector Cam">
   <div class="cam-view" id="camView"></div>
+  <div class="cam-wait" id="camWait" hidden>starting camera…</div>
   <div class="cam-top">
     <button type="button" class="ib" id="camClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     <div class="cam-mid">

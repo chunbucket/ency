@@ -16,9 +16,19 @@
 import { mountChrome } from '../chrome.js';
 mountChrome('tools');
 
+// any failure shows on screen, so a phone without dev tools can still report it
+window.addEventListener('error', e => toast('Error: ' + (e.message || 'unknown')));
+window.addEventListener('unhandledrejection', e => toast('Error: ' + ((e.reason && (e.reason.message || e.reason.name)) || 'unknown')));
+
 const $ = id => document.getElementById(id);
 const S = { mode:'shapes', view:'vector', thr:128, auto:true, invert:false, fill:'#111111',
   ncol:5, keepBg:true, detail:7, smooth:2, speck:20, curves:true, anchors:false, res:900 };
+// settings survive a reload and every switch between controls: one object,
+// written to this browser's storage on each change
+const SAVED = ['mode', 'view', 'thr', 'auto', 'invert', 'fill', 'ncol', 'keepBg', 'detail', 'smooth', 'speck', 'curves', 'anchors', 'res'];
+try { const o = JSON.parse(localStorage.getItem('vc-settings') || '{}'); for (const k of SAVED) if (k in o && typeof o[k] === typeof S[k]) S[k] = o[k]; } catch (e) {}
+let saveT = 0;
+function persist() { clearTimeout(saveT); saveT = setTimeout(() => { try { const o = {}; for (const k of SAVED) o[k] = S[k]; localStorage.setItem('vc-settings', JSON.stringify(o)); } catch (e) {} }, 250); }
 const LIVE_RES = 420;      // trace size while the viewfinder is running
 const REF = 900;           // slider values are tuned for this size; other sizes scale to match
 
@@ -271,6 +281,7 @@ const CHIPS = {
   color:  ['ncol', 'detail', 'smooth', 'speck', 'keepBg', 'curves', 'anchors'],
 };
 let active = 'thr';
+try { const a = localStorage.getItem('vc-active'); if (a) active = a; } catch (e) {}
 
 function setParam(k, v) {
   if (PARAMS[k]) {
@@ -297,6 +308,7 @@ function setAuto(on) { S.auto = on; syncInline(); if (camOpen) updateDial(); sch
 
 /* the desktop dial card mirrors S; it never holds state of its own */
 function syncInline() {
+  persist();
   for (const k of ['thr', 'ncol', 'detail', 'smooth', 'speck']) { $(k).value = S[k]; const v = $(k + 'Val'); if (v) v.textContent = k === 'detail' ? S[k] + ' / 10' : PARAMS[k].fmt(S[k]); }
   for (const k of ['invert', 'keepBg', 'curves', 'anchors']) $(k).checked = S[k];
   $('autoBtn').setAttribute('aria-pressed', S.auto);
@@ -350,7 +362,7 @@ function closeCam(fromHistory) {
   if (!camOpen) return;
   const wasLive = live;
   stopLive(true); releaseWake();
-  camOpen = false; cam.hidden = true; peek = false;
+  camOpen = false; cam.hidden = true; peek = false; $('camWait').hidden = true;
   document.documentElement.classList.remove('cam-open');
   $('mat').appendChild(stage); stage.style.width = stage.style.height = '';
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -387,7 +399,9 @@ function syncChips() {
   }
 }
 function select(k) {
+  if (!CHIPS[S.mode].includes(k) || TOGGLES[k]) k = S.mode === 'shapes' ? 'thr' : 'ncol';
   active = k; syncChips();
+  try { localStorage.setItem('vc-active', k); } catch (e) {}
   const isFill = k === 'fill';
   $('dial').hidden = isFill; $('fillRow').hidden = !isFill;
   updateDial();
@@ -509,6 +523,7 @@ async function startLive() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('This browser doesn’t support the live camera. Choose an image instead.'); return; }
   if (src && src !== vid) lastStill = src;
   openCam('live');                 // open first, inside the tap, so full screen is allowed
+  if (!live) { $('camWait').hidden = false; $('camWait').textContent = 'starting camera…'; }
   try {
     if (!stream || !stream.active) await openStream();
   } catch (e) {
@@ -518,17 +533,24 @@ async function startLive() {
     return;
   }
   if (!camOpen) return;
-  live = true; prevC = null; fpsT = []; src = vid; W = H = 0;
+  live = true; prevC = null; fpsT = []; src = vid; W = H = 0; frames = 0;
   cam.dataset.state = 'live'; wake();
   cancelAnimationFrame(raf); raf = requestAnimationFrame(tick);
+  setTimeout(() => {                 // camera granted but no picture arriving
+    if (live && !frames) { $('camWait').textContent = 'the camera opened but no picture is arriving. close and try again, or choose an image.'; vid.play().catch(() => {}); }
+  }, 4000);
 }
+let frames = 0;
 function tick(now) {
   if (!live) return;
-  if (vid.readyState >= 2 && now - lastTick >= gap) {
+  if (vid.readyState >= 2 && vid.videoWidth && now - lastTick >= gap) {
     lastTick = now;
-    prep(Math.min(LIVE_RES, S.res));
-    const ms = run();
-    gap = Math.max(33, ms * 1.15);    // never let tracing starve the UI
+    try {
+      prep(Math.min(LIVE_RES, S.res));
+      const ms = run();
+      gap = Math.max(33, ms * 1.15);    // never let tracing starve the UI
+      if (!frames++) $('camWait').hidden = true;
+    } catch (e) { stopLive(true); $('camWait').hidden = false; $('camWait').textContent = 'tracing stopped: ' + e.message; return; }
   }
   raf = requestAnimationFrame(tick);
 }
@@ -538,6 +560,7 @@ function stopLive(release) {
 }
 function capture() {
   if (!live || !vid.videoWidth) return;
+  $('camWait').hidden = true;
   const c = document.createElement('canvas'); c.width = vid.videoWidth; c.height = vid.videoHeight;
   const x = c.getContext('2d');
   if (facing === 'user') { x.translate(c.width, 0); x.scale(-1, 1); }
