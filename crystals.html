@@ -46,8 +46,13 @@
 
       <p class="drop-note">Two records. Pre-save on Spotify and both land in your library the night they come out.</p>
 
+      <!-- Straight into Spotify's sign-in, skipping the HyperFollow landing
+           page: this is the URL HyperFollow's own button opens. DistroKid's
+           callback still does the save. After release the button swaps to
+           data-listen, which HyperFollow forwards to the live record. -->
       <a class="svc-cta drop-cta"
-         href="https://distrokid.com/hyperfollow/ency3/crystals--cyclone?utm_source=ency.world&amp;utm_medium=site&amp;utm_campaign=crystals-cyclone"
+         href="https://distrokid.com/spotify/auth/?action=hyperfollow&amp;artistNameShortcut=ency3&amp;albumIdShortcut=crystals--cyclone"
+         data-listen="https://distrokid.com/hyperfollow/ency3/crystals--cyclone?utm_source=ency.world&amp;utm_medium=site&amp;utm_campaign=crystals-cyclone"
          rel="noopener">pre-save on spotify</a>
     </div>
   </article>

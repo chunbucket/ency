@@ -6,8 +6,8 @@
  * Seoul sees zero half a day before someone in New York, which is exactly
  * when the record appears for them.
  *
- * The link never changes: HyperFollow forwards to the live release once it
- * exists, so after the drop the same URL is the listen link. */
+ * Before the drop the button goes straight to Spotify's sign-in for the
+ * presave; after it, to the HyperFollow link, which forwards to the release. */
 
 const root = document.querySelector('.drop');
 
@@ -27,6 +27,7 @@ if (root) {
       count.hidden = true;
       date.textContent = 'out now';
       cta.textContent = 'listen on spotify';
+      if (cta.dataset.listen) cta.href = cta.dataset.listen;
       return false;
     }
     const s = Math.floor(left / 1000);
