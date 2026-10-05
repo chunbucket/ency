@@ -71,6 +71,13 @@ const PAGES = {
       'Drop a link, get a record. Crates files the audio as FLAC with art, title ' +
       'and source embedded, analysed for BPM and key. Free and open source.',
   },
+  '/crystals': {
+    title: 'ency — crystals / cyclone',
+    description:
+      'Crystals / Cyclone, the new single from Ency. Out Friday October 16, 2026 — ' +
+      'pre-save it on Spotify.',
+    image: '/media/covers/cyclone.jpg',
+  },
   '/tools/vectorcam': {
     title: 'ency — vector cam',
     description:
@@ -82,7 +89,7 @@ const PAGES = {
 /* Pages a crawler should see, and roughly how often each changes. The
  * portfolio is deliberately absent: it is noindex, and a Disallow line in
  * robots.txt would publish the very path it is meant to keep quiet. */
-export const INDEXABLE = ['/', '/music', '/services', '/tools', '/crates', '/tools/vectorcam'];
+export const INDEXABLE = ['/', '/music', '/services', '/tools', '/crates', '/tools/vectorcam', '/crystals'];
 
 const esc = s => String(s).replace(/[&<>"]/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -132,7 +139,8 @@ function jsonLd(pathname) {
 export function head(pathname) {
   const page = PAGES[pathname] || PAGES['/'];
   const canonical = SITE.origin + (pathname === '/' ? '/' : pathname);
-  const image = SITE.origin + '/icon-512.png';
+  // a release page shares its cover; everything else shares the mark
+  const image = SITE.origin + (page.image || '/icon-512.png');
 
   return [
     `<title>${esc(page.title)}</title>`,

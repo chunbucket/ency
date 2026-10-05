@@ -1017,3 +1017,58 @@ html.pf #bg { opacity: 0.34; filter: blur(9px) brightness(0.5); }
   .rail .rail-cell { width: 74vw; }
   .rail::after { width: 28px; }
 }
+
+/* =====================================================================
+   a release room (/crystals) — one record, one date, one button.
+   Borrows the services type and CTA; the art and the countdown are its own.
+   ===================================================================== */
+
+.drop {
+  display: grid;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  gap: 44px;
+  align-items: center;
+  max-width: 900px;
+}
+.drop-art img {
+  display: block;
+  width: 100%; height: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+.drop-body .title { margin-bottom: 18px; }
+.drop-name {
+  font: 400 22px/1.25 var(--mono);
+  letter-spacing: 0.08em;
+  color: #fff;
+}
+.drop-by {
+  margin-top: 6px;
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  color: var(--dim);
+}
+.drop-when {
+  display: flex; flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 30px 0 14px;
+  padding: 13px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+.drop-date { color: var(--ink); }
+.drop-count { color: var(--dim); font-variant-numeric: tabular-nums; }
+.drop-note {
+  color: var(--dim);
+  line-height: 1.85;
+  max-width: 40ch;
+  margin-bottom: 26px;
+}
+
+@media (max-width: 720px) {
+  .drop { grid-template-columns: 1fr; gap: 30px; }
+  .drop-art { max-width: 360px; }
+}
