@@ -1017,3 +1017,103 @@ html.pf #bg { opacity: 0.34; filter: blur(9px) brightness(0.5); }
   .rail .rail-cell { width: 74vw; }
   .rail::after { width: 28px; }
 }
+
+/* =====================================================================
+   a release room (/crystals) — one record, one date, one button.
+   Borrows the services type and CTA; the art and the countdown are its own.
+   ===================================================================== */
+
+.drop {
+  display: grid;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  gap: 44px;
+  align-items: center;
+  max-width: 900px;
+}
+.drop-art { perspective: 1100px; }
+/* the sleeve leans toward the cursor; crystals.js writes --rx/--ry and the
+   glare position, eased every frame so it trails rather than snaps */
+.drop-tilt {
+  position: relative;
+  border-radius: 10px;
+  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transform-style: preserve-3d;
+  will-change: transform;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+.drop-tilt img {
+  display: block;
+  width: 100%; height: auto;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.drop-glare {
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle at var(--gx, 50%) var(--gy, 30%),
+              rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 55%);
+  mix-blend-mode: screen;
+  opacity: var(--go, 0);
+}
+.drop-body .title { margin-bottom: 18px; }
+.drop-name {
+  font: 400 22px/1.25 var(--mono);
+  letter-spacing: 0.08em;
+  color: #fff;
+}
+.drop-by {
+  margin-top: 6px;
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  color: var(--dim);
+}
+.drop-when {
+  display: flex; flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 30px 0 14px;
+  padding: 13px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+.drop-date { color: var(--ink); }
+.drop-count { color: var(--dim); font-variant-numeric: tabular-nums; }
+.drop-log {
+  margin: 4px 0 30px;
+  padding-left: 14px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  max-width: 46ch;
+}
+.drop-log-head {
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+/* the log reads as a document, not interface: a book serif against the
+   site's mono. System faces only (the CSP serves fonts from 'self'). */
+.drop-log p {
+  font: 15px/1.7 "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+        Georgia, "Times New Roman", serif;
+  letter-spacing: 0.005em;
+  color: #9a9a9a;
+}
+.drop-log p + p { margin-top: 10px; }
+.drop-note {
+  color: var(--dim);
+  line-height: 1.85;
+  max-width: 40ch;
+  margin-bottom: 26px;
+}
+
+@media (max-width: 720px) {
+  .drop { grid-template-columns: 1fr; gap: 30px; }
+  .drop-art { max-width: 360px; }
+}
+/* between the phone layout (which already drops main below the nav) and the
+   two-column one, the stacked art starts level with the corner nav */
+@media (min-width: 561px) and (max-width: 720px) {
+  .drop { padding-top: 56px; }
+}
