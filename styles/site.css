@@ -1072,3 +1072,8 @@ html.pf #bg { opacity: 0.34; filter: blur(9px) brightness(0.5); }
   .drop { grid-template-columns: 1fr; gap: 30px; }
   .drop-art { max-width: 360px; }
 }
+/* between the phone layout (which already drops main below the nav) and the
+   two-column one, the stacked art starts level with the corner nav */
+@media (min-width: 561px) and (max-width: 720px) {
+  .drop { padding-top: 56px; }
+}
