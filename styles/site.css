@@ -1081,7 +1081,7 @@ html.pf #bg { opacity: 0.34; filter: blur(9px) brightness(0.5); }
 .drop-date { color: var(--ink); }
 .drop-count { color: var(--dim); font-variant-numeric: tabular-nums; }
 .drop-log {
-  margin: 4px 0 22px;
+  margin: 4px 0 30px;
   padding-left: 14px;
   border-left: 1px solid rgba(255, 255, 255, 0.14);
   max-width: 46ch;
@@ -1092,7 +1092,14 @@ html.pf #bg { opacity: 0.34; filter: blur(9px) brightness(0.5); }
   color: var(--ink);
   margin-bottom: 10px;
 }
-.drop-log p { color: var(--dim); line-height: 1.85; }
+/* the log reads as a document, not interface: a book serif against the
+   site's mono. System faces only (the CSP serves fonts from 'self'). */
+.drop-log p {
+  font: 15px/1.7 "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+        Georgia, "Times New Roman", serif;
+  letter-spacing: 0.005em;
+  color: #9a9a9a;
+}
 .drop-log p + p { margin-top: 10px; }
 .drop-note {
   color: var(--dim);
