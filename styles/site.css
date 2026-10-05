@@ -1030,12 +1030,31 @@ html.pf #bg { opacity: 0.34; filter: blur(9px) brightness(0.5); }
   align-items: center;
   max-width: 900px;
 }
-.drop-art img {
+.drop-art { perspective: 1100px; }
+/* the sleeve leans toward the cursor; crystals.js writes --rx/--ry and the
+   glare position, eased every frame so it trails rather than snaps */
+.drop-tilt {
+  position: relative;
+  border-radius: 10px;
+  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transform-style: preserve-3d;
+  will-change: transform;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+.drop-tilt img {
   display: block;
   width: 100%; height: auto;
-  border-radius: 10px;
+  border-radius: inherit;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+.drop-glare {
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle at var(--gx, 50%) var(--gy, 30%),
+              rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 55%);
+  mix-blend-mode: screen;
+  opacity: var(--go, 0);
 }
 .drop-body .title { margin-bottom: 18px; }
 .drop-name {
@@ -1061,6 +1080,20 @@ html.pf #bg { opacity: 0.34; filter: blur(9px) brightness(0.5); }
 }
 .drop-date { color: var(--ink); }
 .drop-count { color: var(--dim); font-variant-numeric: tabular-nums; }
+.drop-log {
+  margin: 4px 0 22px;
+  padding-left: 14px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  max-width: 46ch;
+}
+.drop-log-head {
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+.drop-log p { color: var(--dim); line-height: 1.85; }
+.drop-log p + p { margin-top: 10px; }
 .drop-note {
   color: var(--dim);
   line-height: 1.85;
