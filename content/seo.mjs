@@ -76,7 +76,7 @@ const PAGES = {
     description:
       'Crystals / Cyclone, the new single from Ency. Out Friday October 16, 2026 — ' +
       'pre-save it on Spotify.',
-    image: '/media/covers/cyclone.jpg',
+    image: '/media/covers/crystals-cyclone.jpg',
   },
   '/tools/vectorcam': {
     title: 'ency — vector cam',
