@@ -373,6 +373,9 @@ const server = http.createServer(async (req, res) => {
     if (p === '/music' || p === '/music.html')
       return servePage(res, 'music.html', { head: head('/music'), music: renderSections(MUSIC_SECTIONS) });
 
+    if (p === '/about' || p === '/about.html')
+      return servePage(res, 'about.html', { head: head('/about') });
+
     if (p === '/services' || p === '/services.html')
       return servePage(res, 'services.html',
         { head: head('/services'), services: renderServices(SERVICES), ab: renderAB(AB) });
