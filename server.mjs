@@ -375,7 +375,7 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/services' || p === '/services.html')
       return servePage(res, 'services.html',
-        { head: head('/services'), services: renderServices(SERVICES), ab: renderAB(AB) });
+        { head: head('/services'), services: renderServices(SERVICES), ab: '' });
 
     if (p === '/crates' || p === '/crates.html')
       return servePage(res, 'crates.html', { head: head('/crates'), crates: renderCrates(CRATES) });
