@@ -67,16 +67,11 @@ export function renderSections(sections) {
 }
 
 export function renderServices(s) {
-  const items = s.items.map(i => `
-        <li><span class="k">${esc(i.name)}</span><span class="v">${esc(i.note)}</span></li>`).join('');
   return `<section class="sect">
     <h2>BOOKING</h2>
     <div class="rule"></div>
     <div class="services">
       <p class="svc-lede">${esc(s.lede)}</p>
-      <p class="svc-body">${esc(s.body)}</p>
-      <ul class="svc-list">${items}
-      </ul>
       <a class="svc-cta" href="${esc(s.cta.href)}">${esc(s.cta.label)}</a>
     </div>
   </section>`;
