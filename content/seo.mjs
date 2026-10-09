@@ -21,9 +21,6 @@ export const SITE = {
   region: 'NY',
   country: 'US',
   genres: ['Progressive house', 'Techno', 'Electronic'],
-  /* What the company says it is, in the owner's words. Nothing here beyond that. */
-  orgDescription:
-    'Ency World, LLC is an AI-native branding and marketing agency. Its first client is Ency, a music project.',
   blurb:
     'Ency is a progressive house and techno producer and DJ based in New York City.',
   sameAs: [
@@ -46,14 +43,9 @@ const PAGES = {
   '/': {
     title: 'ency',
     description:
-      'Ency World, LLC is an AI-native branding and marketing agency. Its first ' +
-      'client is Ency, a progressive house and techno project based in New York City.',
-  },
-  '/about': {
-    title: 'ency world - about',
-    description:
-      'Ency World, LLC is an AI-native branding and marketing agency. ' +
-      'Its first client is the music project Ency.',
+      'Ency is a progressive house and techno producer and DJ based in New York ' +
+      'City, building a record and a world around it. Music, mixing and ' +
+      'mastering, and the tools behind them.',
   },
   '/music': {
     title: 'ency — music',
@@ -90,7 +82,7 @@ const PAGES = {
 /* Pages a crawler should see, and roughly how often each changes. The
  * portfolio is deliberately absent: it is noindex, and a Disallow line in
  * robots.txt would publish the very path it is meant to keep quiet. */
-export const INDEXABLE = ['/', '/about', '/music', '/services', '/tools', '/crates', '/tools/vectorcam'];
+export const INDEXABLE = ['/', '/music', '/services', '/tools', '/crates', '/tools/vectorcam'];
 
 const esc = s => String(s).replace(/[&<>"]/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -121,22 +113,12 @@ function jsonLd(pathname) {
       sameAs: SITE.sameAs,
     },
     {
-      '@type': 'Organization',
-      '@id': SITE.origin + '/#organization',
-      name: 'Ency World, LLC',
-      legalName: SITE.legalName,
-      url: SITE.origin + '/about',
-      description: SITE.orgDescription,
-      knowsAbout: ['Branding', 'Marketing'],
-      subjectOf: { '@id': SITE.origin + '/#artist' },
-    },
-    {
       '@type': 'WebSite',
       '@id': SITE.origin + '/#website',
       url: SITE.origin + '/',
       name: SITE.name,
       description: page.description,
-      publisher: { '@id': SITE.origin + '/#organization' },
+      publisher: { '@id': SITE.origin + '/#artist' },
       inLanguage: 'en',
     },
   ];
