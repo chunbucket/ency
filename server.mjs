@@ -267,6 +267,22 @@ async function servePage(res, name, subs, headers = {}) {
   }
 }
 
+// Where /qr sends people. Read on every request so a Railway variable change
+// takes effect on the restart it triggers, with no code change. Anything that
+// isn't an http(s) URL or a same-site path falls back to home rather than
+// emitting a broken or unsafe Location header.
+function qrTarget() {
+  const raw = (process.env.QR_TARGET || '').trim();
+  if (!raw) return '/';
+  if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+  try {
+    const u = new URL(raw);
+    if (u.protocol === 'https:' || u.protocol === 'http:') return u.href;
+  } catch { /* not a URL */ }
+  console.warn('⚠ QR_TARGET is not an http(s) URL or a /path — /qr goes home');
+  return '/';
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 // E.164-ish: strip formatting, 7–15 digits; a bare US 10-digit gets +1
@@ -342,6 +358,23 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8',
                            'Cache-Control': 'public, max-age=3600' });
       return res.end(sitemapXml());
+    }
+
+    // The printed QR code points here, never at a destination directly, so the
+    // destination can change without reprinting. Set QR_TARGET in Railway to
+    // repoint it (a full https:// URL or a path on this site); unset means home.
+    // 302 + no-store, not 301: phones cache a permanent redirect and would keep
+    // sending people to the old link after QR_TARGET changes.
+    // /QR too: the printed code encodes HTTPS://ENCY.WORLD/QR in uppercase,
+    // which QR's alphanumeric mode packs tighter — a smaller grid with bigger
+    // dots and stronger error correction at the same 1" print size.
+    if (p === '/qr' || p === '/QR') {
+      res.writeHead(302, {
+        Location: qrTarget(),
+        'Cache-Control': 'no-store',
+        'X-Robots-Tag': 'noindex',
+      });
+      return res.end();
     }
 
     if (p === '/lab') return serveFile(res, 'lab.html', req);   // mesh v2 prototype, unlisted
