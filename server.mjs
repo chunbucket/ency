@@ -329,7 +329,13 @@ function securityHeaders(res, p) {
   const scriptSrc = (p === '/studio' || p === '/studio.html' || p === '/lab')
     ? "script-src 'self' 'unsafe-inline'"
     : "script-src 'self'";
-  res.setHeader('Content-Security-Policy', `${CSP_BASE}; style-src 'self' 'unsafe-inline'; ${scriptSrc}`);
+  // The link tree embeds SoundCloud's player; frames stay self-only everywhere
+  // else. The player document inside the frame answers to SoundCloud's own
+  // CSP, so this one directive is the whole allowance.
+  const frameSrc = (p === '/links' || p === '/links.html')
+    ? "frame-src 'self' https://w.soundcloud.com"
+    : "frame-src 'self'";
+  res.setHeader('Content-Security-Policy', `${CSP_BASE}; style-src 'self' 'unsafe-inline'; ${scriptSrc}; ${frameSrc}`);
 }
 
 // ------------------------------------------------------------------ routes
@@ -402,6 +408,11 @@ const server = http.createServer(async (req, res) => {
       }));
     }
     if (p === '/tools/vectorcam-sw.js') return serveFile(res, 'js/pages/vectorcam-sw.js', req);
+
+    // The public link tree: the URL for bios and stories. Public like /music —
+    // the gate is for the lobby, not for people finding the record.
+    if (p === '/links' || p === '/links.html')
+      return servePage(res, 'links.html', { head: head('/links') });
 
     if (p === '/music' || p === '/music.html')
       return servePage(res, 'music.html', { head: head('/music'), music: renderSections(MUSIC_SECTIONS) });
