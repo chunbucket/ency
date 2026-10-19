@@ -329,13 +329,17 @@ function securityHeaders(res, p) {
   const scriptSrc = (p === '/studio' || p === '/studio.html' || p === '/lab')
     ? "script-src 'self' 'unsafe-inline'"
     : "script-src 'self'";
-  // The link tree embeds SoundCloud's player; frames stay self-only everywhere
-  // else. The player document inside the frame answers to SoundCloud's own
-  // CSP, so this one directive is the whole allowance.
-  const frameSrc = (p === '/links' || p === '/links.html')
+  // The link tree embeds SoundCloud's player and pulls the cover from their
+  // CDN; every other route keeps frames and images self-only. The player
+  // document inside the frame answers to SoundCloud's own CSP, so these two
+  // directives are the whole allowance.
+  const linkTree = p === '/links' || p === '/links.html';
+  const frameSrc = linkTree
     ? "frame-src 'self' https://w.soundcloud.com"
     : "frame-src 'self'";
-  res.setHeader('Content-Security-Policy', `${CSP_BASE}; style-src 'self' 'unsafe-inline'; ${scriptSrc}; ${frameSrc}`);
+  const csp = CSP_BASE.replace("img-src 'self' data:",
+    linkTree ? "img-src 'self' data: https://*.sndcdn.com" : "img-src 'self' data:");
+  res.setHeader('Content-Security-Policy', `${csp}; style-src 'self' 'unsafe-inline'; ${scriptSrc}; ${frameSrc}`);
 }
 
 // ------------------------------------------------------------------ routes
