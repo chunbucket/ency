@@ -76,7 +76,7 @@ const PAGES = {
     description:
       'Everywhere Ency lives: the new NEON remix on SoundCloud, plus Instagram ' +
       'and TikTok. Progressive house and techno from New York City.',
-    image: '/media/covers/neon-ency-remix.jpg',
+    image: 'https://i1.sndcdn.com/artworks-IP6gWl41lz2zfmP0-9Epvzw-t1080x1080.jpg',
   },
   '/tools/vectorcam': {
     title: 'ency — vector cam',
@@ -139,7 +139,9 @@ function jsonLd(pathname) {
 export function head(pathname) {
   const page = PAGES[pathname] || PAGES['/'];
   const canonical = SITE.origin + (pathname === '/' ? '/' : pathname);
-  const image = SITE.origin + (page.image || '/icon-512.png');
+  const image = page.image && page.image.startsWith('http')
+    ? page.image
+    : SITE.origin + (page.image || '/icon-512.png');
 
   return [
     `<title>${esc(page.title)}</title>`,
@@ -186,4 +188,4 @@ export function sitemapXml() {
   return '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
     urls + '\n</urlset>\n';
-}
+      }
