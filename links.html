@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en" class="page">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!--{{head}}-->
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/styles/site.css">
+</head>
+<body data-room="links">
+
+<div id="bg"><canvas id="cv"></canvas></div>
+
+<!-- The link tree: the one URL for bios and stories. The featured slot at the
+     top holds whatever is newest — right now the NEON remix, played through
+     SoundCloud's own embed so streams still count there. Swapping the feature
+     is a markup change, not a redesign. -->
+<main class="linktree">
+
+  <header class="lt-head">
+    <img class="lt-mark" src="/mark.svg" alt="" width="28" height="28">
+    <div class="lt-name">ency</div>
+  </header>
+
+  <section class="lt-feature">
+    <div class="lt-label">new</div>
+    <img class="lt-art" src="https://i1.sndcdn.com/artworks-IP6gWl41lz2zfmP0-9Epvzw-t1080x1080.jpg" alt="A20 LITE - NEON (Ency Remix) cover art" width="1080" height="1080">
+    <div class="lt-track">A20 LITE — NEON (Ency Remix)</div>
+    <iframe class="lt-player" title="A20 LITE - NEON (Ency Remix) on SoundCloud"
+            src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/encymusic/neon-ency-remix&amp;color=%23c0c0c0&amp;inverse=true&amp;auto_play=false&amp;show_user=true&amp;hide_related=true&amp;show_comments=false&amp;show_reposts=false&amp;show_teaser=false&amp;visual=false"
+            height="166" loading="lazy" allow="autoplay"></iframe>
+    <a class="lt-open" href="https://soundcloud.com/encymusic/neon-ency-remix" rel="noopener">open in soundcloud ↗</a>
+  </section>
+
+  <nav class="lt-links" aria-label="Ency elsewhere">
+    <a class="svc-cta lt-cta" href="https://soundcloud.com/encymusic" rel="noopener">soundcloud</a>
+    <a class="svc-cta lt-cta" href="https://instagram.com/en.cy_" rel="noopener">instagram</a>
+    <a class="svc-cta lt-cta" href="https://www.tiktok.com/@en.cy_" rel="noopener">tiktok</a>
+    <a class="svc-cta lt-cta" href="/music">music</a>
+    <a class="svc-cta lt-cta" href="/">ency.world</a>
+  </nav>
+
+</main>
+
+<script src="/js/vendor/ribbon.js"></script>
+<script type="module" src="/js/pages/room.js"></script>
+</body>
+</html>

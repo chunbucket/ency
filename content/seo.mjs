@@ -71,6 +71,13 @@ const PAGES = {
       'Drop a link, get a record. Crates files the audio as FLAC with art, title ' +
       'and source embedded, analysed for BPM and key. Free and open source.',
   },
+  '/links': {
+    title: 'ency — links',
+    description:
+      'Everywhere Ency lives: the new NEON remix on SoundCloud, plus Instagram ' +
+      'and TikTok. Progressive house and techno from New York City.',
+    image: 'https://i1.sndcdn.com/artworks-IP6gWl41lz2zfmP0-9Epvzw-t1080x1080.jpg',
+  },
   '/tools/vectorcam': {
     title: 'ency — vector cam',
     description:
@@ -82,7 +89,7 @@ const PAGES = {
 /* Pages a crawler should see, and roughly how often each changes. The
  * portfolio is deliberately absent: it is noindex, and a Disallow line in
  * robots.txt would publish the very path it is meant to keep quiet. */
-export const INDEXABLE = ['/', '/music', '/services', '/tools', '/crates', '/tools/vectorcam'];
+export const INDEXABLE = ['/', '/music', '/services', '/tools', '/crates', '/tools/vectorcam', '/links'];
 
 const esc = s => String(s).replace(/[&<>"]/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -132,7 +139,9 @@ function jsonLd(pathname) {
 export function head(pathname) {
   const page = PAGES[pathname] || PAGES['/'];
   const canonical = SITE.origin + (pathname === '/' ? '/' : pathname);
-  const image = SITE.origin + '/icon-512.png';
+  const image = page.image && page.image.startsWith('http')
+    ? page.image
+    : SITE.origin + (page.image || '/icon-512.png');
 
   return [
     `<title>${esc(page.title)}</title>`,
