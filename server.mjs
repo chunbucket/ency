@@ -170,9 +170,9 @@ const MIME = {
 };
 
 
-// The vCard behind /card's "save contact". Email + public URLs only: no raw
-// phone number in the file — WhatsApp reaches him through the wa.me link,
-// which is also the number he confirmed for public exposure (Oct 21, 2026).
+// The vCard behind /card's "save contact". WhatsApp number included as TEL:
+// Noah confirmed +1 201-543-9790 for public exposure and asked to include
+// WhatsApp in the downloadable contact (Oct 21, 2026).
 const CONTACT_VCARD = [
   'BEGIN:VCARD',
   'VERSION:3.0',
@@ -181,6 +181,7 @@ const CONTACT_VCARD = [
   'ORG:Ency',
   'TITLE:Producer & DJ',
   'EMAIL;TYPE=INTERNET:noah@ency.world',
+  'TEL;TYPE=CELL:+12015439790',
   'URL:https://ency.world',
   'URL:https://wa.me/12015439790',
   'URL:https://soundcloud.com/encymusic',
