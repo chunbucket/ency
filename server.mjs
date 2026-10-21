@@ -169,6 +169,26 @@ const MIME = {
   '.webp': 'image/webp',
 };
 
+
+// The vCard behind /card's "save contact". Email + public URLs only: no raw
+// phone number in the file — WhatsApp reaches him through the wa.me link,
+// which is also the number he confirmed for public exposure (Oct 21, 2026).
+const CONTACT_VCARD = [
+  'BEGIN:VCARD',
+  'VERSION:3.0',
+  'N:Chun;Noah;;;',
+  'FN:Noah Chun',
+  'ORG:Ency',
+  'TITLE:Producer & DJ',
+  'EMAIL;TYPE=INTERNET:noah@ency.world',
+  'URL:https://ency.world',
+  'URL:https://wa.me/12015439790',
+  'URL:https://soundcloud.com/encymusic',
+  'URL:https://instagram.com/en.cy_',
+  'URL:https://www.tiktok.com/@en.cy_',
+  'END:VCARD',
+].join('\r\n');
+
 function json(res, code, body) {
   const s = JSON.stringify(body);
   res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(s) });
@@ -417,6 +437,21 @@ const server = http.createServer(async (req, res) => {
     // the gate is for the lobby, not for people finding the record.
     if (p === '/links' || p === '/links.html')
       return servePage(res, 'links.html', { head: head('/links') });
+
+    // The contact card: what a scanned QR lands on at conferences. Public
+    // like /links — a stranger's camera has to open it without the gate.
+    if (p === '/card' || p === '/card.html')
+      return servePage(res, 'card.html', { head: head('/card') });
+
+    // The vCard the card's "save contact" button downloads.
+    if (p === '/card.vcf') {
+      res.writeHead(200, {
+        'Content-Type': 'text/vcard; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="noah-chun-ency.vcf"',
+        'Cache-Control': 'no-cache',
+      });
+      return res.end(CONTACT_VCARD);
+    }
 
     if (p === '/music' || p === '/music.html')
       return servePage(res, 'music.html', { head: head('/music'), music: renderSections(MUSIC_SECTIONS) });
