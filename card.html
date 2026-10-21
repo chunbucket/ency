@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" class="page">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!--{{head}}-->
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/styles/site.css">
+<style>
+  /* The contact card (/card): what a scanned QR lands on. Same narrow column
+     as the link tree, contact first and music one scroll below. */
+  .card-id { text-align: center; margin-bottom: 32px; }
+  .card-name { font-size: 26px; letter-spacing: 0.08em; color: #fff; }
+  .card-role { font-size: 11px; letter-spacing: 0.24em; color: var(--dim); margin-top: 10px; }
+  .card-save {
+    display: block;
+    margin-top: 26px;
+    padding: 16px 24px;
+    font: 12px/1 var(--mono);
+    letter-spacing: 0.16em;
+    color: #000;
+    background: #fff;
+    border-radius: 999px;
+    text-decoration: none;
+    text-align: center;
+  }
+  .card-save:hover { background: rgba(255, 255, 255, 0.85); }
+  .card-label {
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    color: var(--dim);
+    text-align: center;
+    margin: 30px 0 14px;
+  }
+</style>
+</head>
+<body data-room="links">
+
+<div id="bg"><canvas id="cv"></canvas></div>
+
+<!-- The contact card: the QR destination for conferences and meetups.
+     "save contact" downloads the vCard served at /card.vcf; the rows below
+     are the live channels. Phone reaches him through the wa.me link only —
+     the vCard itself carries email + URLs, no raw number. -->
+<main class="linktree">
+
+  <header class="lt-head">
+    <img class="lt-mark" src="/mark.svg" alt="" width="28" height="28">
+    <div class="lt-name">ency</div>
+  </header>
+
+  <section class="card-id">
+    <div class="card-name">noah chun</div>
+    <div class="card-role">producer &amp; dj</div>
+    <a class="card-save" href="/card.vcf">save contact</a>
+  </section>
+
+  <nav class="lt-links" aria-label="Contact Noah">
+    <a class="svc-cta lt-cta" href="https://wa.me/12015439790" rel="noopener">whatsapp</a>
+    <a class="svc-cta lt-cta" href="mailto:noah@ency.world">email</a>
+    <a class="svc-cta lt-cta" href="https://instagram.com/en.cy_" rel="noopener">instagram</a>
+    <a class="svc-cta lt-cta" href="https://www.tiktok.com/@en.cy_" rel="noopener">tiktok</a>
+  </nav>
+
+  <div class="card-label">listen</div>
+
+  <nav class="lt-links" aria-label="Ency music">
+    <a class="svc-cta lt-cta" href="https://soundcloud.com/encymusic/neon-ency-remix" rel="noopener">a20 lite - neon (ency remix)</a>
+    <a class="svc-cta lt-cta" href="https://soundcloud.com/encymusic" rel="noopener">soundcloud</a>
+  </nav>
+
+</main>
+
+<script src="/js/vendor/ribbon.js"></script>
+<script type="module" src="/js/pages/room.js"></script>
+</body>
+</html>
