@@ -173,6 +173,7 @@ const MIME = {
 // The vCard behind /card's "save contact". WhatsApp number included as TEL:
 // Noah confirmed +1 201-543-9790 for public exposure and asked to include
 // WhatsApp in the downloadable contact (Oct 21, 2026).
+// Redeploy after Railway's build pause (Oct 22, 2026).
 const CONTACT_VCARD = [
   'BEGIN:VCARD',
   'VERSION:3.0',
