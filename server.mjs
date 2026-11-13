@@ -474,6 +474,14 @@ const server = http.createServer(async (req, res) => {
         { portfolio: renderPortfolio(PORTFOLIO) },
         { 'X-Robots-Tag': 'noindex, nofollow, noarchive, noimageindex' });
 
+    // Unlisted legal pages for the Google OAuth consent screen. Same rule as
+    // the portfolio: never linked, not in INDEXABLE (so not in the sitemap),
+    // kept out of search by the header rather than a robots.txt Disallow.
+    if (p === '/privacy' || p === '/terms') {
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+      return serveFile(res, p.slice(1) + '.html', req);
+    }
+
     if (p === '/studio' || p === '/studio.html') {
       if (!authed(req)) { res.writeHead(302, { Location: '/' }); return res.end(); }
       return serveFile(res, 'studio.html', req);
